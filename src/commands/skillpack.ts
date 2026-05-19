@@ -109,6 +109,15 @@ export async function runSkillpack(args: string[]): Promise<void> {
     case 'check':
       await routeCheck(rest);
       return;
+    case 'search':
+      await cmdSearch(rest);
+      return;
+    case 'info':
+      await cmdInfo(rest);
+      return;
+    case 'registry':
+      await cmdRegistry(rest);
+      return;
     case 'install':
       console.error(
         "Error: 'gbrain skillpack install' was removed in v0.33. Use 'gbrain skillpack scaffold <name>' instead.\n" +
@@ -243,15 +252,39 @@ async function cmdScaffold(args: string[]): Promise<void> {
 
   // Disambiguate bundled-skill name vs third-party source.
   //
-  // Routing rule: when the input contains `://`, `/`, or ends in `.tgz` /
-  // `.tar.gz`, it's a third-party source. Otherwise it's a bundled-skill
-  // slug. Bare kebab names ("book-mirror") stay on the v0.36 bundled path
-  // — that's where the existing tests live and most agents will go.
-  const isThirdPartySpec = !all && name !== null && /[\/:]|\.(tgz|tar\.gz)$/.test(name);
-
+  // Routing rules (in priority order):
+  //   1. `--all`                                       → bundled --all sweep
+  //   2. Spec contains `/` / `://` / ends in .tgz      → third-party direct
+  //   3. Bare kebab AND matches a bundled-skill slug   → bundled (v0.36 path)
+  //   4. Bare kebab AND NOT a bundled-skill slug       → third-party via registry
   const targetWorkspace = resolveWorkspace({ workspace });
 
-  if (isThirdPartySpec) {
+  const isThirdPartyShape = !all && name !== null && /[\/:]|\.(tgz|tar\.gz)$/.test(name);
+
+  if (!all && name !== null && !isThirdPartyShape) {
+    // Check if the kebab name matches a bundled-skill slug.
+    const gbrainRoot = findGbrainRoot();
+    if (gbrainRoot) {
+      try {
+        const manifest = loadBundleManifest(gbrainRoot);
+        const slugs = bundledSkillSlugs(manifest);
+        if (!slugs.includes(name)) {
+          // Not a bundled slug — try the registry.
+          await runThirdPartyScaffold({
+            spec: name,
+            targetWorkspace,
+            dryRun,
+            trustFlag,
+            noCache,
+            json,
+          });
+          return;
+        }
+      } catch {
+        // Fall through to the bundled path; it'll surface a clearer error.
+      }
+    }
+  } else if (isThirdPartyShape) {
     await runThirdPartyScaffold({
       spec: name!,
       targetWorkspace,
@@ -310,22 +343,29 @@ interface ThirdPartyScaffoldOptions {
 }
 
 async function runThirdPartyScaffold(opts: ThirdPartyScaffoldOptions): Promise<void> {
-  // Step 1: resolve the source (clone / extract / point at local dir).
+  // Step 1: resolve the source. Kebab names get a registry lookup first;
+  // everything else hits the direct resolveSource() path.
   let resolved;
+  let registryTier: 'endorsed' | 'community' | 'experimental' | 'dead' | undefined;
   try {
-    // classifySpec also rejects bare kebab inputs ("hackathon-evaluation")
-    // because those need to flow through the registry-client first; that
-    // path lands in a follow-up commit. For now, bare kebabs fall back
-    // to the bundled-skill path (handled by the dispatcher).
     const cls = classifySpec(opts.spec);
     if (cls.kind === 'kebab') {
-      console.error(
-        `Error: bare short name "${opts.spec}" needs registry lookup, which is not yet wired in v0.37. ` +
-          `Pass the full source instead (owner/repo, https URL, ./path, or ./*.tgz).`,
-      );
-      process.exit(2);
+      // Registry path: load catalog, find pack, follow to URL.
+      const { loadRegistry, findPackWithTier } = await import('../core/skillpack/registry-client.ts');
+      const loaded = await loadRegistry({});
+      const found = findPackWithTier(loaded, cls.normalized);
+      if (!found) {
+        console.error(
+          `Error: no skillpack named "${cls.normalized}" in the registry (${loaded.registry_url}).\n` +
+            `Run \`gbrain skillpack search ${cls.normalized}\` for matches, or pass a full source (owner/repo, https URL, ./path, ./*.tgz).`,
+        );
+        process.exit(2);
+      }
+      registryTier = found.tier;
+      resolved = resolveSource(found.entry.source.url, { noCache: opts.noCache });
+    } else {
+      resolved = resolveSource(opts.spec, { noCache: opts.noCache });
     }
-    resolved = resolveSource(opts.spec, { noCache: opts.noCache });
   } catch (err) {
     if (err instanceof RemoteSourceError) {
       console.error(`skillpack scaffold: ${err.message}`);
@@ -343,6 +383,7 @@ async function runThirdPartyScaffold(opts: ThirdPartyScaffoldOptions): Promise<v
         targetWorkspace: opts.targetWorkspace,
         trustFlag: opts.trustFlag,
         dryRun: opts.dryRun,
+        tier: registryTier,
       },
       VERSION,
     );
@@ -655,6 +696,236 @@ async function cmdScrubLegacy(args: string[]): Promise<void> {
     if (result.preserved.length) console.log(`  preserved: ${result.preserved.join(', ')}`);
   }
   process.exit(0);
+}
+
+// ---------------------------------------------------------------------------
+// search / info / registry  (registry catalog reads)
+// ---------------------------------------------------------------------------
+
+async function cmdSearch(args: string[]): Promise<void> {
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(
+      'gbrain skillpack search [<query>] [--tier endorsed|community|experimental|dead] [--json] [--refresh] [--url URL]',
+    );
+    process.exit(0);
+  }
+  const json = args.includes('--json');
+  const refresh = args.includes('--refresh');
+  let query: string | undefined;
+  let tier: 'endorsed' | 'community' | 'experimental' | 'dead' | undefined;
+  let urlOverride: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--tier') {
+      tier = args[i + 1] as typeof tier;
+      i++;
+    } else if (a === '--url') {
+      urlOverride = args[i + 1];
+      i++;
+    } else if (a && !a.startsWith('--') && !query) {
+      query = a;
+    }
+  }
+
+  const { loadRegistry, searchPacks } = await import('../core/skillpack/registry-client.ts');
+  const loaded = await loadRegistry({ url: urlOverride, refresh });
+  const results = searchPacks(loaded, { query, tier });
+
+  if (json) {
+    console.log(
+      JSON.stringify(
+        {
+          registry_url: loaded.registry_url,
+          origin: loaded.origin,
+          cache_age_ms: loaded.cache_age_ms,
+          query: query ?? null,
+          tier_filter: tier ?? null,
+          count: results.length,
+          results: results.map((r) => ({
+            name: r.entry.name,
+            version: r.entry.version,
+            description: r.entry.description,
+            author: r.entry.author,
+            tier: r.tier,
+            tags: r.entry.tags,
+            homepage: r.entry.homepage,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+    process.exit(0);
+  }
+
+  if (results.length === 0) {
+    console.log(`(no skillpacks matched${query ? ` "${query}"` : ''}${tier ? ` (tier=${tier})` : ''})`);
+    process.exit(0);
+  }
+  console.log(`${results.length} skillpack${results.length === 1 ? '' : 's'} (from ${loaded.registry_url})\n`);
+  for (const r of results) {
+    const tierBadge = r.tier === 'endorsed' ? '★' : r.tier === 'community' ? '·' : r.tier === 'experimental' ? '?' : '✗';
+    console.log(`  ${tierBadge} ${r.entry.name}@${r.entry.version}  [${r.tier}]`);
+    console.log(`    ${r.entry.description}`);
+    console.log(`    by ${r.entry.author}  ·  ${r.entry.homepage}`);
+    if (r.entry.tags.length > 0) console.log(`    tags: ${r.entry.tags.join(', ')}`);
+    console.log('');
+  }
+  process.exit(0);
+}
+
+async function cmdInfo(args: string[]): Promise<void> {
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log('gbrain skillpack info <name> [--json] [--refresh] [--url URL]');
+    process.exit(0);
+  }
+  const json = args.includes('--json');
+  const refresh = args.includes('--refresh');
+  let name: string | undefined;
+  let urlOverride: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--url') {
+      urlOverride = args[i + 1];
+      i++;
+    } else if (a && !a.startsWith('--') && !name) {
+      name = a;
+    }
+  }
+  if (!name) {
+    console.error('Error: pass a skillpack name.');
+    process.exit(2);
+  }
+
+  const { loadRegistry, findPackWithTier } = await import('../core/skillpack/registry-client.ts');
+  const loaded = await loadRegistry({ url: urlOverride, refresh });
+  const found = findPackWithTier(loaded, name);
+  if (!found) {
+    console.error(`Error: no skillpack named "${name}" in ${loaded.registry_url}.`);
+    process.exit(2);
+  }
+
+  if (json) {
+    console.log(
+      JSON.stringify(
+        {
+          name: found.entry.name,
+          version: found.entry.version,
+          description: found.entry.description,
+          author: found.entry.author,
+          author_handle: found.entry.author_handle,
+          homepage: found.entry.homepage,
+          tier: found.tier,
+          tags: found.entry.tags,
+          source: found.entry.source,
+          tarball_sha256: found.entry.tarball_sha256,
+          gbrain_min_version: found.entry.gbrain_min_version,
+          validated_at: found.entry.validated_at,
+          validation_run_id: found.entry.validation_run_id,
+          skills_count: found.entry.skills_count,
+          skills: found.entry.skills,
+        },
+        null,
+        2,
+      ),
+    );
+    process.exit(0);
+  }
+  console.log(`${found.entry.name}@${found.entry.version}  [${found.tier}]`);
+  console.log(`  Description:   ${found.entry.description}`);
+  console.log(`  Author:        ${found.entry.author} (@${found.entry.author_handle})`);
+  console.log(`  Homepage:      ${found.entry.homepage}`);
+  console.log(`  Source:        ${found.entry.source.url}`);
+  console.log(`  Pinned commit: ${found.entry.source.pinned_commit}`);
+  console.log(`  Tarball SHA:   sha256:${found.entry.tarball_sha256}`);
+  console.log(`  gbrain min:    ${found.entry.gbrain_min_version}`);
+  console.log(`  Validated:     ${found.entry.validated_at} (run ${found.entry.validation_run_id})`);
+  console.log(`  Tags:          ${found.entry.tags.join(', ')}`);
+  console.log(`  Skills (${found.entry.skills_count}):`);
+  for (const s of found.entry.skills) console.log(`    - ${s}`);
+  console.log('\nTo scaffold:');
+  console.log(`  gbrain skillpack scaffold ${found.entry.name}`);
+  process.exit(0);
+}
+
+async function cmdRegistry(args: string[]): Promise<void> {
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(
+      'gbrain skillpack registry [--url URL] [--refresh] [--json]\n' +
+        '\n' +
+        '  --url URL    Set the registry URL (writes to ~/.gbrain/config.json)\n' +
+        '  --refresh    Force a fresh fetch from the current registry URL\n' +
+        '  --json       JSON output for agent consumption',
+    );
+    process.exit(0);
+  }
+  const json = args.includes('--json');
+  const refresh = args.includes('--refresh');
+  let setUrl: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--url' && args[i + 1]) {
+      setUrl = args[i + 1];
+      i++;
+    }
+  }
+
+  if (setUrl) {
+    // Persist to ~/.gbrain/config.json under skillpack.registry_url.
+    const { gbrainPath } = await import('../core/config.ts');
+    const cfgPath = gbrainPath('config.json');
+    let cfg: Record<string, unknown> = {};
+    if (existsSync(cfgPath)) {
+      try {
+        cfg = JSON.parse(readFileSync(cfgPath, 'utf-8')) as Record<string, unknown>;
+      } catch {
+        cfg = {};
+      }
+    }
+    (cfg as Record<string, unknown>).skillpack = {
+      ...((cfg.skillpack as Record<string, unknown>) ?? {}),
+      registry_url: setUrl,
+    };
+    const tmp = cfgPath + '.tmp';
+    const fs = await import('fs');
+    fs.mkdirSync(require('path').dirname(cfgPath), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2) + '\n');
+    fs.renameSync(tmp, cfgPath);
+    console.log(`Set skillpack.registry_url = ${setUrl}`);
+  }
+
+  const { loadRegistry, resolveRegistryUrl } = await import('../core/skillpack/registry-client.ts');
+  const url = resolveRegistryUrl({});
+  try {
+    const loaded = await loadRegistry({ refresh });
+    if (json) {
+      console.log(
+        JSON.stringify(
+          {
+            registry_url: loaded.registry_url,
+            origin: loaded.origin,
+            cache_age_ms: loaded.cache_age_ms,
+            skillpack_count: loaded.catalog.skillpacks.length,
+            updated_at: loaded.catalog.updated_at,
+            bundles: Object.keys(loaded.catalog.bundles ?? {}),
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.log(`Registry: ${loaded.registry_url}`);
+      console.log(`Origin:   ${loaded.origin}` + (loaded.cache_age_ms !== null ? ` (${loaded.cache_age_ms}ms old)` : ''));
+      console.log(`Updated:  ${loaded.catalog.updated_at}`);
+      console.log(`Skillpacks: ${loaded.catalog.skillpacks.length}`);
+      const bundleNames = Object.keys(loaded.catalog.bundles ?? {});
+      if (bundleNames.length > 0) console.log(`Bundles:   ${bundleNames.join(', ')}`);
+    }
+    process.exit(0);
+  } catch (err) {
+    console.error(`Error: ${(err as Error).message}`);
+    console.error(`Currently configured registry: ${url}`);
+    process.exit(2);
+  }
 }
 
 // ---------------------------------------------------------------------------

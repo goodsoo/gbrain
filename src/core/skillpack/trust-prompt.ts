@@ -20,7 +20,7 @@ import type { SkillpackManifest } from './manifest-v1.ts';
 import type { SkillpackState } from './state.ts';
 import { isAlreadyTrusted } from './state.ts';
 
-export type SkillpackTier = 'endorsed' | 'community' | 'experimental' | 'local';
+export type SkillpackTier = 'endorsed' | 'community' | 'experimental' | 'dead' | 'local';
 
 export interface TrustPromptInput {
   manifest: SkillpackManifest;

@@ -41,7 +41,7 @@ export interface SkillpackStateEntry {
   /** SHA-256 of the tarball that was extracted when source_kind=tarball; null otherwise. */
   tarball_sha256: string | null;
   /** Tier the pack was on in the registry at scaffold time (informational only). */
-  tier: 'endorsed' | 'community' | 'experimental' | 'local';
+  tier: 'endorsed' | 'community' | 'experimental' | 'dead' | 'local';
   /** ISO 8601 wall-clock timestamp of the scaffold (UTC). */
   scaffolded_at: string;
   /** Absolute path of the workspace where files were written. */
