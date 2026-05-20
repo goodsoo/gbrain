@@ -4,6 +4,19 @@ import { LATEST_VERSION, getIdleBlockers } from '../core/migrate.ts';
 import { checkResolvable } from '../core/check-resolvable.ts';
 import { autoFixDryViolations, type AutoFixReport, type FixOutcome } from '../core/dry-fix.ts';
 import { autoDetectSkillsDirReadOnly } from '../core/repo-root.ts';
+import { loadOrDeriveManifest } from '../core/skill-manifest.ts';
+import { parseSkillFrontmatter } from '../core/skill-frontmatter.ts';
+import {
+  analyzeSkillBrainFirst,
+  buildBrainFirstSummaryLine,
+  type BrainFirstAnalysis,
+} from '../core/skill-brain-first.ts';
+import {
+  loadSnapshot,
+  writeSnapshotAtomically,
+  diffAgainstSnapshot,
+  appendAuditEventsForTransitions,
+} from '../core/audit-skill-brain-first.ts';
 import { loadCompletedMigrations } from '../core/preferences.ts';
 import { compareVersions } from './migrations/index.ts';
 import { createProgress, startHeartbeat, type ProgressReporter } from '../core/progress.ts';
@@ -1464,6 +1477,21 @@ export async function runDoctor(engine: BrainEngine | null, args: string[], dbSo
   if (skillsDir) {
     const conformanceResult = checkSkillConformance(skillsDir);
     checks.push(conformanceResult);
+  }
+
+  // 2b. Skill brain-first compliance (v0.36.x, supersedes PR #1206).
+  // Scans every SKILL.md for external-lookup tools (web_search, exa,
+  // perplexity, etc.) and warns when the skill doesn't declare
+  // `brain_first: exempt` AND doesn't carry a canonical Convention
+  // callout / Phase 1 brain heading / position-relative brain-first
+  // reference. Motivated by the 2026-05-19 tweet-shield incident.
+  //
+  // Audit trail: snapshot+diff at ~/.gbrain/audit/skill-brain-first-
+  // snapshot.json. Writes one detected/resolved JSONL line per state
+  // transition + one fixed line per applied --fix. Stable brain → zero
+  // audit writes per doctor run.
+  if (skillsDir) {
+    checks.push(skillBrainFirstCheck(skillsDir));
   }
 
   // 3. Half-migrated Minions detection (filesystem-only).
@@ -3604,6 +3632,149 @@ function checkSkillConformance(skillsDir: string): Check {
   } catch {
     return { name: 'skill_conformance', status: 'warn', message: 'Could not parse manifest.json' };
   }
+}
+
+/**
+ * v0.36.x skill_brain_first doctor check (supersedes PR #1206).
+ *
+ * Walks the skills manifest, runs the pure `analyzeSkillBrainFirst()`
+ * helper on each, surfaces violators with structured issues[]. Snapshot-
+ * diff against the previous run drives audit JSONL writes (transition-
+ * only) — stable brains produce zero audit churn per doctor invocation.
+ *
+ * Exit shape:
+ *   - 0 violators → status: 'ok', message: '<n> skills compliant or exempt'
+ *   - any violator → status: 'warn', message + per-skill summary lines +
+ *     formerly-EXEMPT_SKILLS hint when applicable (CMT1 replaces the
+ *     dropped upgrade migration with a guided opt-in)
+ *
+ * Test seam: pure function, no `process.exit`. Direct call from tests
+ * with a synthetic skills dir under tempdir.
+ */
+export function skillBrainFirstCheck(skillsDir: string): Check {
+  let manifest: ReturnType<typeof loadOrDeriveManifest>;
+  try {
+    manifest = loadOrDeriveManifest(skillsDir);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      name: 'skill_brain_first',
+      status: 'warn',
+      message: `Could not load skills manifest from ${skillsDir} (${msg})`,
+    };
+  }
+  if (manifest.skills.length === 0) {
+    return {
+      name: 'skill_brain_first',
+      status: 'ok',
+      message: 'No skills found — skill_brain_first not applicable',
+    };
+  }
+
+  const violators: BrainFirstAnalysis[] = [];
+  const typoSkills: BrainFirstAnalysis[] = [];
+
+  for (const entry of manifest.skills) {
+    const skillPath = join(skillsDir, entry.path);
+    if (!existsSync(skillPath)) continue; // resolver_health already reports
+    let content: string;
+    try {
+      content = readFileSync(skillPath, 'utf-8');
+    } catch {
+      continue; // best-effort; permissions etc.
+    }
+    const fm = parseSkillFrontmatter(content);
+    const result = analyzeSkillBrainFirst(content, entry.name, fm);
+    if (result.typo_hint) typoSkills.push(result);
+    if (result.status === 'warn') violators.push(result);
+  }
+
+  // --- Snapshot + diff audit (A2 contract) ---------------------------------
+  // Best-effort: snapshot/audit failures don't poison the check result.
+  const violatorSlugs = new Set(violators.map(v => v.skill));
+  const patternsBySlug = new Map<string, string[]>();
+  for (const v of violators) {
+    patternsBySlug.set(v.skill, v.external_patterns_matched);
+  }
+  let priorSnapshotPresent = true;
+  try {
+    const snapshot = loadSnapshot();
+    priorSnapshotPresent = snapshot.present;
+    const diff = diffAgainstSnapshot(violatorSlugs, snapshot.violators);
+    const doctorRunId = `${process.pid}-${Date.now()}`;
+    if (snapshot.present) {
+      // Steady-state path: write events only for transitions.
+      appendAuditEventsForTransitions(diff, patternsBySlug, doctorRunId);
+    } else {
+      // First run / corrupt snapshot: bootstrap by writing one
+      // `detected` line per current violator. This is the only path
+      // that writes more than `diff.added.length` lines in a single
+      // doctor invocation.
+      const bootstrapDiff = { added: Array.from(violatorSlugs).sort(), removed: [], unchanged: [] };
+      appendAuditEventsForTransitions(bootstrapDiff, patternsBySlug, doctorRunId);
+    }
+    writeSnapshotAtomically(violatorSlugs);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[gbrain] skill_brain_first audit step failed (${msg}); check continues\n`);
+  }
+
+  // --- Build the check result ---------------------------------------------
+  if (violators.length === 0) {
+    const typoNote = typoSkills.length > 0
+      ? ` (note: ${typoSkills.length} skill(s) have brain_first typo hints: ${typoSkills.map(t => t.skill).join(', ')})`
+      : '';
+    return {
+      name: 'skill_brain_first',
+      status: 'ok',
+      message: `${manifest.skills.length} skill(s) compliant or exempt${typoNote}`,
+    };
+  }
+
+  // Sort for deterministic message + issues order.
+  violators.sort((a, b) => a.skill.localeCompare(b.skill));
+
+  const formerlyExempt = violators.filter(v => v.formerly_hardcoded_exempt);
+  const summary: string[] = [];
+  summary.push(
+    `${violators.length} skill(s) do external lookups without a brain-first compliance signal. ` +
+    `Fix via 'gbrain doctor --fix' (adds canonical Convention callout) ` +
+    `or set 'brain_first: exempt' in skill frontmatter for genuine infra skills.`,
+  );
+  if (formerlyExempt.length > 0) {
+    summary.push(
+      `Of these, ${formerlyExempt.length} were hardcoded-exempt in PR #1206 (${formerlyExempt.map(v => v.skill).slice(0, 6).join(', ')}${formerlyExempt.length > 6 ? ', ...' : ''}). ` +
+      `These need explicit opt-out now: run 'gbrain doctor --fix' to add the canonical callout, ` +
+      `or add 'brain_first: exempt' to frontmatter for skills that genuinely shouldn't consult the brain.`,
+    );
+  }
+  if (typoSkills.length > 0) {
+    summary.push(
+      `${typoSkills.length} skill(s) have brain_first typo hints: ` +
+      typoSkills.slice(0, 6).map(t => `${t.skill} — ${t.typo_hint}`).join('; ') +
+      (typoSkills.length > 6 ? '; ...' : ''),
+    );
+  }
+
+  return {
+    name: 'skill_brain_first',
+    status: 'warn',
+    message: summary.join(' '),
+    issues: violators.map(v => ({
+      type: 'skill_missing_brain_first',
+      skill: v.skill,
+      action: v.formerly_hardcoded_exempt
+        ? `Add canonical Convention callout OR set 'brain_first: exempt' (was hardcoded-exempt in PR #1206)`
+        : `Add canonical Convention callout OR set 'brain_first: exempt'`,
+      fix: {
+        kind: 'add-convention-callout',
+        external_patterns: v.external_patterns_matched,
+        typo_hint: v.typo_hint,
+        formerly_hardcoded_exempt: v.formerly_hardcoded_exempt,
+        summary_line: buildBrainFirstSummaryLine(v),
+      },
+    })),
+  };
 }
 
 function outputResults(checks: Check[], json: boolean): boolean {

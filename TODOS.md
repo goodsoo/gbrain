@@ -1,6 +1,56 @@
 # TODOS
 
 
+## skill_brain_first wave follow-ups (v0.36.4+)
+
+- [ ] **v0.37+: Runtime brain-first gate at MCP dispatch.** The v0.36.x
+  `skill_brain_first` doctor check is purely static — it scans SKILL.md
+  authorship for canonical Convention callouts, `brain_first: exempt`
+  frontmatter, or position-relative brain references. The motivating
+  incident (2026-05-19 tweet-shield) was a RUNTIME failure: an agent
+  called Perplexity / cross-modal eval to assess Garry's Palantir tweet
+  without ever checking the brain, which already had "designed the
+  entire Finance product UI" and "150+ PSDs from April-December 2006."
+  A runtime gate would hook MCP tool dispatch: when a subagent invokes
+  `web_search` / `perplexity` / `exa` / etc., require that a `search`,
+  `query`, or `get_page` call landed earlier in the same agent turn.
+  Subagent-isolation aware (the gate scope is per-turn, per-agent).
+  Touches: `src/mcp/dispatch.ts` (tool-call entry seam, would gate before
+  routing to external-tool handlers), `src/core/minions/handlers/subagent.ts`
+  (per-turn tracking), `src/core/operations.ts` (cross-reference the
+  brain-tool ops). Full wave on its own (~3-5 days human / ~1-2h CC).
+  Out of scope for the static-check wave because the surface area is
+  fundamentally different. Closes the tweet-shield root cause at the
+  enforcement layer instead of just the authorship layer.
+
+- [ ] **v0.36.x: Audit trend doctor check `skill_brain_first_trend`.** The
+  v0.36.x snapshot+diff audit JSONL at
+  `~/.gbrain/audit/skill-brain-first-YYYY-Www.jsonl` records detected /
+  resolved / fixed events as transitions. The data is reachable via
+  `readRecentBrainFirstEvents(7)` in `src/core/audit-skill-brain-first.ts`
+  but no doctor surface consumes it yet. Add a `skill_brain_first_trend`
+  check (~30 LOC) that reads recent events, aggregates added vs resolved
+  counts per week, warns when violations are rising (e.g. >3 added, 0
+  resolved over 4 weeks). Cheap to land once audit logs accumulate
+  multiple weeks of data (no point shipping it with zero baseline data).
+  Mirrors the doctor check pattern in `src/commands/doctor.ts`. Filed
+  during /plan-eng-review as TODO-2.
+
+- [ ] **v0.36.x: Tighten the external-lookup regex to reduce false-positive
+  rate from name mentions.** v0.36.x ships with word-boundary regex on
+  `perplexity`, `exa`, `web_search`, etc. This matches "perplexity"
+  inside `perplexity-research` (a sub-skill name in dispatcher prose, not
+  an API call). Two skills in this repo's own `skills/` (functional-area-
+  resolver, strategic-reading) hit this false-positive and ship with
+  `brain_first: exempt`. Possible mitigation: tighten the pattern to
+  require an API-call shape like `perplexity\.|perplexity[\s._-]?(?:api|search|query)`.
+  Whack-a-mole risk — the negation-prose false-positive class can't be
+  reliably caught with regex either. Tracking as a follow-up; the
+  declarative `brain_first: exempt` opt-out is the canonical answer for
+  the false-positive cases. Decide based on real-world hit rate after
+  the v0.36.x wave is in production for a few weeks.
+
+
 ## v0.35.6.0 floor-ratio gate follow-ups (v0.36.x+)
 
 - [ ] **v0.36.x: Run gbrain-side floor-ratio ablation before flipping any mode-bundle default.** v0.35.6.0 ships the gate default-off (`MODE_BUNDLES[*].floor_ratio = undefined`) because the SkyTwin labeled-retrieval ablation that surfaced the regression isn't reproducible on gbrain's own eval surfaces from outside. Before any mode-bundle default flip, run the gate at `floor_ratio: undefined`, 0.85, 0.90, 0.95 across `gbrain eval longmemeval`, `gbrain eval whoknows`, `gbrain eval suspected-contradictions`, and the BrainBench-Real replay (sibling gbrain-evals repo). Quantify per-mode P@k / R@k / nDCG@k / top-1 stability deltas. Look for: regression on queries that genuinely need the long-tail boost (specific entity lookups, low-frequency topics) vs improvement on queries where weak-overlap pages were leapfrogging. The corpus-level finding determines whether tokenmax (most exposure to the failure mode) should flip first, or whether the gate stays a per-call opt-in indefinitely. Filed during v0.35.6.0 codex outside-voice review.
