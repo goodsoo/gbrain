@@ -2,6 +2,60 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## [0.37.9.0] - 2026-05-20
+
+**Tags get written the same way everywhere now.**
+
+v0.37.5.0 fixed the doctor (it stopped flagging `tags: ["yc", "w2025"]` as broken). This release lines up everything else with that fix. When gbrain itself emits a tag list (inferred frontmatter on import, or `frontmatter validate --fix` rewriting a file), it writes `tags: ['yc', 'w2025']` in the canonical single-quote form. Your new pages and your repaired pages now look the same in `git diff`. No more cosmetic noise.
+
+If a tag actually contains an apostrophe like `Men's Fashion`, it falls back to double quotes, so YAML stays valid without ugly `''` escaping.
+
+**Skill update for agents that write into gbrain:** the `frontmatter-guard` skill now has a Prevention section showing the canonical YAML shapes side by side. Future agents should write the single-quote form on the first try.
+
+**How to use it**
+
+```bash
+gbrain upgrade
+# Existing files stay valid. Only new writes use the canonical form.
+# To normalize an existing brain's tag style:
+gbrain frontmatter validate <path> --fix
+```
+
+The `--fix` pass now rewrites `tags: ["yc", "w2025"]` to `tags: ['yc', 'w2025']` in place, with a backup under `~/.gbrain/backups/frontmatter/`. Only `tags:` and `aliases:` are touched. Other typed arrays (`metrics: ["1", "2"]`, `scores: ["a", "b"]`) are left alone on purpose, because rewriting them could change what gbrain reads them as.
+
+**What's safe to know about**
+
+- This is canonical-style normalization, not a bug fix. Both forms (`["yc"]` and `['yc']`) parse to the same array `['yc']` and hash identically in storage. The v0.37.5.0 validator already accepts both. This release is about making gbrain's own writes consistent with each other.
+- The auto-fix engine and the validator share a dedup gate. A file with both a JSON-array tag rewrite and a nested-quote title rewrite produces ONE `NESTED_QUOTES` audit entry, not two, so `frontmatter_integrity` counts stay honest about distinct files affected.
+- The validator gained a parity test that pins agreement between per-value `safeLoad` parsing and `gray-matter`'s full-document parse on the load-bearing inputs. Catches future per-value parse drift before it ships.
+
+**Why this is a small release**
+
+The hard problem was the validator (shipped in v0.37.5.0). What's left is alignment: the emitter, the auto-fix engine, and the agent guidance. Each piece touches one place and ships with its own tests. The "auto-heal on put_page" idea explored during planning was dropped after Codex's outside-voice review pointed out that `put_page` parses YAML into typed fields and hashes them, so single-quoted vs double-quoted arrays are functionally identical in storage. The fix lives where the writes happen, not on the read path.
+
+### Itemized changes
+
+#### Added
+
+- `src/core/brain-writer.ts:155-220` — new step 3a in `autoFixFrontmatter()`. Allow-listed to `tags:` / `aliases:` keys (`^(\s*(tags|aliases)\s*:\s*)\[(.*)\]\s*$`). Rewrites JSON-style double-quoted items to single-quoted YAML; items containing `'` fall back to double quotes via `JSON.stringify`. Empty items render as `''`. Idempotent.
+- `src/core/brain-writer.ts:154` — shared `nestedQuotesFixed` dedup gate between step 3a and existing step 3. One `NESTED_QUOTES` fix record per file when both fire.
+- `skills/frontmatter-guard/SKILL.md:170-217` — new "Prevention — Writing Valid Frontmatter" section. Correct/incorrect YAML examples, explanation of why `JSON.stringify`-style arrays are valid-but-non-canonical post-v0.37.5.0, and a quoting decision rule.
+- `test/brain-writer.test.ts` — 7 new cases for step 3a (JSON-array rewrite, apostrophe fallback, empty item, non-allow-list keys untouched, `aliases:` parity, step 3a + step 3 dedup, idempotency).
+- `test/markdown-validation.test.ts` — parity test covering the per-value-safeLoad vs gray-matter-full-document axis. Pins the load-bearing inputs the validator must agree with itself on, so a future per-value parse drift surfaces as a test failure not a silent flag-storm.
+
+#### Changed
+
+- `src/core/frontmatter-inference.ts:411-416` — `serializeFrontmatter()` emits `tags: ['yc', 'w2025']` (single-quoted) by default; falls back to `JSON.stringify` (double-quoted) only when a tag contains `'`. Aligns inferred-frontmatter output with the auto-fix engine.
+- `test/frontmatter-inference.test.ts:239` — updated assertion to match new canonical output; added apostrophe-fallback regression case.
+
+#### Removed
+
+- `TODOS.md` — closed out the "v0.37.5.0 NESTED_QUOTES validator follow-up" entry (unify `serializeFrontmatter` quoting with `brain-writer.ts:184` style). Resolved by this release.
+
+#### For contributors
+
+- The auto-fix engine's key-scope decision matters. If a future need shows up to normalize arrays for keys beyond `tags`/`aliases` (e.g. an `authors:` field), extend the regex allow-list explicitly. Don't broaden to `[A-Za-z_][\w-]*` — that would rewrite typed-numeric arrays (`scores: ["1", "2"]`) into string arrays and break downstream typed-claim extraction.
+- Codex outside-voice review on this wave produced 11 findings; 1 dropped a planned layer (put_page auto-normalization, because storage hashes parsed fields not raw bytes), 1 narrowed the allow-list, 5 fixed plan housekeeping. Original PRs #1217 (closed, serializer fix) and #1238 (closed, four-layer defense-in-depth) absorbed into this wave.
 ## [0.37.8.0] - 2026-05-20
 
 **For agents indexing source code with gbrain, the right embedding model is now obvious — and the brain tells you so out loud.**
