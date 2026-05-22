@@ -3206,18 +3206,65 @@ export async function runDoctor(engine: BrainEngine | null, args: string[], dbSo
     mbcHb();
   }
 
-  // 11a. Frontmatter integrity (v0.22.4).
+  // 11a. Frontmatter integrity (v0.22.4, hardened in v0.38.2.0).
   // scanBrainSources walks every registered source's local_path on disk
   // (not from the DB), invoking parseMarkdown(..., {validate:true}) per
   // file. Reports per-source counts grouped by error code. The fix path is
   // `gbrain frontmatter validate <source-path> --fix`, which writes .bak
   // backups so it works for both git and non-git brain repos.
+  //
+  // v0.38.2.0 wave (this PR supersedes PR #1287):
+  //  - `pruneDir` now applies at descent inside brain-writer.ts:walkDir so
+  //    the scan no longer recurses into node_modules / .git / .obsidian /
+  //    *.raw / ops. That alone takes the 216K-page user from "hangs
+  //    forever" to "completes in seconds" on the typical brain.
+  //  - `deadline` (per-file Date.now() check inside the sync loop) is the
+  //    load-bearing wall-clock bound. AbortSignal.timeout (kept for
+  //    between-source aborts) cannot interrupt sync readdirSync /
+  //    readFileSync — codex outside-voice C1 caught the original plan's
+  //    assumption that it could.
+  //  - Partial-result surfacing: per-source status ('scanned' | 'partial' |
+  //    'skipped'), files_scanned numerator, and an honest "scanned ~N files
+  //    (source has ~M pages in DB)" message when the deadline fires. The
+  //    `partial` and `aborted_at_source` fields on AuditReport feed the
+  //    JSON consumer.
+  //  - Configurable via GBRAIN_DOCTOR_FM_TIMEOUT_MS (default 30000ms).
   progress.heartbeat('frontmatter_integrity');
   const fmHb = startHeartbeat(progress, 'scanning frontmatter…');
+  const fmTimeoutMs = (() => {
+    const raw = process.env.GBRAIN_DOCTOR_FM_TIMEOUT_MS;
+    const n = raw ? parseInt(raw, 10) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : 30000;
+  })();
   try {
     const { scanBrainSources } = await import('../core/brain-writer.ts');
-    const report = await scanBrainSources(engine);
-    if (report.total === 0) {
+    const fmDeadline = Date.now() + fmTimeoutMs;
+    const fmAbort = AbortSignal.timeout(fmTimeoutMs);
+    // Per-source DB denominator. Coarse — DB pages and on-disk syncable
+    // files are overlapping but not identical (unsynced disk files,
+    // soft-deleted DB rows, auto-generated pages). Wording in the partial
+    // message makes the mismatch honest. Failure of the COUNT degrades to
+    // null and the message falls back to bare numerator.
+    const dbPageCountForSource = async (sourceId: string): Promise<number | null> => {
+      try {
+        const rows = await engine.executeRaw<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM pages WHERE source_id = $1 AND deleted_at IS NULL`,
+          [sourceId],
+        );
+        if (rows.length === 0) return null;
+        const parsed = parseInt(rows[0].n, 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    };
+    const report = await scanBrainSources(engine, {
+      signal: fmAbort,
+      deadline: fmDeadline,
+      dbPageCountForSource,
+    });
+
+    if (report.total === 0 && !report.partial) {
       const sources = report.per_source.length;
       checks.push({
         name: 'frontmatter_integrity',
@@ -3227,23 +3274,55 @@ export async function runDoctor(engine: BrainEngine | null, args: string[], dbSo
           : `${sources} source(s) clean — no frontmatter issues`,
       });
     } else {
+      // Build per-source breakdown that distinguishes scanned / partial /
+      // skipped so the user can tell which sources weren't checked.
       const sourceMessages: string[] = [];
       for (const src of report.per_source) {
-        if (src.total === 0) continue;
+        if (src.status === 'skipped') {
+          // Codex adversarial #1: `gbrain frontmatter validate` takes a
+          // filesystem PATH, not a source id. Pre-fix the hint pointed users
+          // at a command that would fail with "no such directory" — breaking
+          // the very remediation path this PR ships to give them.
+          sourceMessages.push(
+            `${src.source_id}: NOT SCANNED (timeout — run \`gbrain frontmatter validate ${src.source_path}\`)`,
+          );
+          continue;
+        }
+        if (src.status === 'partial') {
+          const denom = src.db_page_count != null ? ` (source has ~${src.db_page_count} pages in DB)` : '';
+          const codes = src.total > 0
+            ? `, ${Object.entries(src.errors_by_code).map(([k, v]) => `${k}=${v}`).join(', ')}`
+            : '';
+          sourceMessages.push(
+            `${src.source_id}: PARTIAL — scanned ~${src.files_scanned} files${denom}, ${src.total} issue(s) so far${codes}`,
+          );
+          continue;
+        }
+        // status === 'scanned'
+        if (src.total === 0) continue; // clean source — don't clutter the message
         const codes = Object.entries(src.errors_by_code)
           .map(([k, v]) => `${k}=${v}`)
           .join(', ');
         sourceMessages.push(`${src.source_id}: ${src.total} (${codes})`);
       }
+      const fixHint = report.partial
+        ? `Raise GBRAIN_DOCTOR_FM_TIMEOUT_MS or run \`gbrain frontmatter validate <source>\` directly. Fix issues: \`gbrain frontmatter validate <source> --fix\``
+        : `Fix: gbrain frontmatter validate <source-path> --fix`;
       checks.push({
         name: 'frontmatter_integrity',
         status: 'warn',
         message:
-          `${report.total} frontmatter issue(s) across ${sourceMessages.length} source(s). ` +
-          `${sourceMessages.join('; ')}. Fix: gbrain frontmatter validate <source-path> --fix`,
+          `${report.total} frontmatter issue(s)` +
+          (report.partial ? ` (PARTIAL SCAN — timeout after ${fmTimeoutMs / 1000}s)` : '') +
+          `. ${sourceMessages.join('; ')}. ${fixHint}`,
       });
     }
   } catch (e) {
+    // Codex outside-voice D4: the abort path returns cleanly via partial
+    // state — this catch is purely for unexpected errors (FS permission,
+    // OOM, disk full, etc.). Pre-v0.38.2.0 (PR #1287) had an unreachable
+    // abort-classifier branch here; removed because timer-based aborts
+    // in a sync walker can't surface as a thrown error anyway.
     checks.push({
       name: 'frontmatter_integrity',
       status: 'warn',

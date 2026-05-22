@@ -107,6 +107,71 @@ This wave grew significantly through review (boil-the-lakes orientation):
 - New shared primitive `src/core/audit/audit-writer.ts` is the way to add JSONL audits going forward. Replicating the ISO-week math is no longer acceptable — wrap `createAuditWriter` instead.
 - `pairedBootstrapPValue` is exported from `test/e2e/graph-signals-eval.test.ts` for any future eval suite that needs a paired Bernoulli A/B significance test.
 - Five TODOs filed for v0.41+: profile graph-signal SQL latency, run magnitude calibration wave on 30 days of search-stats data, move fail-open audits to a DB table, sync-topology-aware cross-source signal, replace doctor's global density threshold with actual fire-rate measurement.
+## [0.38.2.0] - 2026-05-22
+
+**`gbrain doctor` no longer hangs on big brains, and gives you real signal when it has to give up.**
+
+If you've got a sizeable brain (tens of thousands of pages and up, especially in a repo that doubles as a code workspace), `gbrain doctor` used to feel like it locked up. The frontmatter check would sit there for a minute or more, and any cron monitor wrapping it would time out and report the whole health report as failed. The actual problem turned out to be embarrassing: the scanner was crawling into `node_modules/`, `.git/`, `.obsidian/`, and other vendor directories on every doctor run, paying the cost of touching hundreds of thousands of files it was always going to throw away. This release stops doing that, AND adds a real wall-clock budget so even pathologically large sources get a useful answer instead of a hang.
+
+When the budget does run out, doctor now tells you exactly which sources finished, which one got partway, and which ones never got checked, with a paste-ready remediation command per source. No more black-box "scan timed out."
+
+### How to upgrade
+
+```bash
+gbrain upgrade
+# That's it. No manual steps. Doctor is faster on the next run.
+```
+
+### What you'd see in a concrete example
+
+A brain with 3 federated sources where source-b is huge:
+
+```
+$ gbrain doctor
+...
+frontmatter_integrity: warn
+  216 frontmatter issue(s) (PARTIAL SCAN — timeout after 30s).
+  src-a: 14 (NESTED_QUOTES=14);
+  src-b: PARTIAL — scanned ~42000 files (source has ~200000 pages in DB), 202 issue(s) so far, NESTED_QUOTES=202;
+  src-c: NOT SCANNED (timeout — run `gbrain frontmatter validate src-c`).
+  Raise GBRAIN_DOCTOR_FM_TIMEOUT_MS or run `gbrain frontmatter validate <source>` directly.
+```
+
+You get the breakdown per source instead of a single opaque warn. If you want a bigger budget for that one cron, `export GBRAIN_DOCTOR_FM_TIMEOUT_MS=60000` (default is 30 seconds).
+
+### The numbers that matter
+
+| Brain shape | Pre-v0.38.2.0 | Post-v0.38.2.0 |
+|---|---|---|
+| 10K real pages, no vendor dirs | seconds | seconds (no regression) |
+| 10K real pages + node_modules with 50K files | hangs past 30s | seconds (descent prunes vendor trees) |
+| 200K+ real pages, single source | hangs forever | partial result inside budget, per-source breakdown |
+| Cron wrapped in `timeout 60s` | exit 124, full health report fails | exit 0, `frontmatter_integrity: warn` with actionable detail |
+
+### Things to watch
+
+- **`gbrain frontmatter validate <source>` is also faster.** The same fix applies to that command's walker (there were two walkers with the same bug; one PR closed both).
+- **`AbortSignal.timeout` is the lesser bound, not the load-bearing one.** The hard wall-clock guarantee comes from a deadline check inside the file-by-file scan loop. (Pre-merge a Codex review caught that the timer-based abort can't interrupt synchronous filesystem calls; the deadline check is what actually fires mid-walk.)
+- **Steady-state cost is still O(N) in real pages.** This release delivers bounded wall-clock and honest partial-state signal, NOT sub-second steady-state doctor. Driving the steady state to constant-cost needs DB-backed scan state — designed in `docs/architecture/frontmatter-scan-incremental.md`, deferred to a follow-up PR because schema migrations carry their own contract surface.
+
+### Supersedes PR #1287
+
+Community PR #1287 (by @garrytan-agents) diagnosed the hang correctly and proposed a 10-line `AbortSignal.timeout` band-aid. We took the bug seriously enough to find a deeper root cause: the walker was descending into vendor directories on every tick. PR #1287 closes after this release lands. Thanks to the agent for the diagnosis — the timeout plumbing it added is part of the safety net that ships here.
+
+### Itemized changes
+
+- `src/core/brain-writer.ts`: `walkDir` now consults `pruneDir(name, parentDir)` at descent time, the canonical pruner used by sync/extract/transcript-discovery since v0.35.5.0. Skips `node_modules`, `.git`, `.obsidian`, `*.raw`, `ops`, all dot-prefix dirs, and git submodule dirs (`.git` as FILE per v0.37.7.0 #1169). `ScanOpts` gains `deadline?: number` (epoch ms) checked per file inside `scanOneSource` — the load-bearing wall-clock bound. `PerSourceReport` gains `status: 'scanned' | 'partial' | 'skipped'`, `files_scanned: number` (numerator), and `db_page_count?: number | null` (denominator from the doctor-supplied SQL hook). `AuditReport` gains `partial: boolean` and `aborted_at_source: string | null`. `ok` is now `grandTotal === 0 && !partial` — a clean prefix from a timed-out scan no longer falsely reports clean. `walkDir` exported with an optional `visitDir` test callback for the regression suite (production callers don't pass it).
+- `src/commands/frontmatter.ts`: `collectFiles` (the second walker — drives `gbrain frontmatter validate`) gets the same `pruneDir` wiring + optional `visitDir` callback. Now `export`ed. Without this fix, doctor's own remediation hint pointed users at a command that hung the same way.
+- `src/commands/doctor.ts`: `frontmatter_integrity` adopts the deadline + AbortSignal.timeout pair (configurable via `GBRAIN_DOCTOR_FM_TIMEOUT_MS`, default 30000ms). Per-source DB denominator via `SELECT COUNT(*) FROM pages WHERE source_id = $1 AND deleted_at IS NULL`. Partial render distinguishes `'scanned' | 'partial' | 'skipped'` with honest "scanned ~N files (source has ~M pages in DB)" wording — the DB COUNT and the on-disk scan are overlapping but not identical sets, and the message reflects that. Catch block simplified to "unexpected error only" (no AbortError special case; the abort path returns cleanly via partial state, not via throw).
+- Tests: `test/brain-writer-walk-prune.test.ts` (12 cases, REGRESSION suite for both walkers — uses the new `visitDir` callback for direct descent-time observability, not leaf-output assertions which would pass under the original bug). `test/brain-writer-partial-scan.test.ts` (5 cases for deadline + partial state + ok-after-abort + numerator/denominator). `test/doctor-frontmatter-partial.test.ts` (11 structural source-grep cases pinning the load-bearing render strings).
+- `tests/heavy/frontmatter_scan_wallclock.sh` (new, manual / nightly per `tests/heavy/README.md`): seeds a synthetic 60K-file brain (10K real + 50K under node_modules) and asserts `gbrain doctor` completes in <15s with `frontmatter_integrity: ok`. Catches the regression at a scale where the original bug actually shows.
+- `docs/architecture/frontmatter-scan-incremental.md`: Phase 2 design sketch for DB-backed scan state — schema migration, sync-side writes, autopilot cycle phase, doctor reader. Captured so the follow-up PR has a starting point.
+
+### For contributors
+
+- The walker test surface changes shape: `walkDir` (brain-writer.ts) and `collectFiles` (frontmatter.ts) are now exported with an optional `visitDir` callback. Tests should use this for descent-time pruning assertions; leaf-output tests can pass under the original bug since `isSyncable` filters at the leaf.
+- `scanBrainSources` now returns `partial` + `aborted_at_source` on `AuditReport` and `status` + `files_scanned` (+ optional `db_page_count`) per `PerSourceReport`. Any test that constructs `AuditReport` literals needs to include the new required fields. (One pre-existing test was updated as part of this PR.)
+- `runDoctor` still calls `process.exit` at the end — behavioral tests against it can't run via the unit-test runner. That refactor stays a TODO; the unit-test layer covers `scanBrainSources` + doctor's render shape via source-grep, and the heavy script covers end-to-end against a subprocess.
 
 ## [0.38.1.0] - 2026-05-21
 
@@ -366,6 +431,7 @@ These do not block the v0.38 release: the substrate is shipped and queryable; so
 
 `gbrain upgrade` should do this automatically. If it didn't, or if `gbrain doctor`
 warns about a partial migration:
+
 ## [0.37.11.0] - 2026-05-21
 
 **Fresh `gbrain init --pglite` works out of the box now.**
