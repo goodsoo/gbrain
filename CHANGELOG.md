@@ -2,7 +2,7 @@
 
 All notable changes to GBrain will be documented in this file.
 
-## [0.40.4.0] - 2026-05-23
+## [0.40.6.0] - 2026-05-23
 
 **`gbrain sync --all` now syncs your sources at the same time instead of one after the other, and you can see the health of every source at a glance with `gbrain sources status`.** If you have a brain with 4+ sources connected to it, the cron job that keeps everything up to date used to take as long as the slowest source. One stuck `git pull` on a big media-corpus repo held up everything else, and after 24 hours you'd start seeing stale-data warnings pile up. Now the sources run together — independent ones don't wait on each other, and you can run `gbrain sources status` to see at a glance which ones are fresh, stale, or running behind. Per-source log lines come prefixed with `[source-id]` so you can grep one source's output cleanly even when several are running.
 
@@ -23,7 +23,7 @@ This release is built on top of community PR #1314 from @garrytan-agents — the
 - New CLI flag `--parallel N` validated through the same `parseWorkers` helper as `--workers`. Default `min(sourceCount, --workers, 4)`. Pass `--parallel 1` to force the legacy serial behavior.
 - New constant `DEFAULT_PARALLEL_SOURCES = 4` in `src/core/sync-concurrency.ts` (sibling to the existing `DEFAULT_PARALLEL_WORKERS`).
 - Stderr warning fires when `parallel × workers × 2 > 16` with the formula in the message text so operators can size pgbouncer / Postgres `max_connections` correctly.
-- `--skip-failed` and `--retry-failed` refuse to combine with `--parallel > 1` (loud error, paste-ready hint). Source-scoping the failure log is filed as a v0.40.4 follow-up.
+- `--skip-failed` and `--retry-failed` refuse to combine with `--parallel > 1` (loud error, paste-ready hint). Source-scoping the failure log is filed as a v0.41+ follow-up.
 
 **`gbrain sources status` read-only dashboard:**
 
@@ -66,7 +66,7 @@ This release is built on top of community PR #1314 from @garrytan-agents — the
 - Single-source / non-`--all` paths: bit-for-bit identical behavior to v0.40.2.
 - PGLite users get serial behavior (single-connection engine). The parallel path is a Postgres-only win.
 
-## To take advantage of v0.40.4.0
+## To take advantage of v0.40.6.0
 
 `gbrain upgrade` should do this automatically. If it didn't:
 

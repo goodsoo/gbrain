@@ -1,8 +1,8 @@
 # TODOS
 
-## v0.40.3.0 follow-ups (v0.40.4 / v0.41+)
+## v0.40.3.0 follow-ups (v0.41+)
 
-- [ ] **v0.40.4: source-scope the `sync-failures.jsonl` log so `--skip-failed` works under `--parallel > 1`.**
+- [ ] **v0.41+: source-scope the `sync-failures.jsonl` log so `--skip-failed` works under `--parallel > 1`.**
   v0.40.3.0 shipped `gbrain sync --all --parallel N` as a continuous worker pool
   with per-source DB locks. The remaining unsafe path: `recordSyncFailures()` /
   `acknowledgeSyncFailures()` in `src/core/sync.ts` write to a brain-global JSONL
@@ -19,7 +19,7 @@
   Codex outside-voice (decision D15 → B in the eng-review plan at
   `~/.claude/plans/system-instruction-you-are-working-fluttering-grove.md`).
 
-- [ ] **v0.40.4 (optional): extend `checkSyncFreshness` to include `embedding_coverage_pct`
+- [ ] **v0.41+ (optional): extend `checkSyncFreshness` to include `embedding_coverage_pct`
   per source.** v0.40.3.0 plan originally proposed adding a NEW doctor check
   `sync_freshness_per_source` consuming `buildSyncStatusReport`. Codex caught
   that `checkSyncFreshness` (`src/commands/doctor.ts:~1609`) is ALREADY per-source —
