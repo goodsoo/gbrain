@@ -307,7 +307,11 @@ describe('knobsHash determinism + cross-mode separation (CDX-4)', () => {
     // A query against a brain on tokenmax (per-chunk synopsis) must not
     // be served from a cache row written when the brain was on balanced
     // (title-only) — different embedding spaces.
-    expect(KNOBS_HASH_VERSION).toBe(4);
+    // v0.40.5.0 (D8): bumped 4→5 to sequence behind salem's pending v=4
+    // graph-signals work. Master shipped v=4 via schema-pack hash fields
+    // (pack name + pack version) so our contextual-retrieval additions
+    // land at v=5.
+    expect(KNOBS_HASH_VERSION).toBe(5);
   });
 
   test('T1 (codex): floor_ratio set vs unset produces DIFFERENT hashes (cache contamination prevention)', () => {
