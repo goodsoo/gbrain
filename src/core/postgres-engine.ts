@@ -501,7 +501,7 @@ export class PostgresEngine implements BrainEngine {
           || !probeProv.pages_ingested_at_exists
           || !probeProv.pages_source_uri_exists
           || !probeProv.pages_source_kind_exists);
-    // v0.40.5.0 (v90, renumbered from v0.40.3.0 v81 on master merge):
+    // v0.40.3.0 (v90, renumbered from v0.40.3.0 v81 on master merge):
     // contextual retrieval columns on pages + sources. Defense-in-depth.
     const probeCr = probe as {
       pages_cr_mode_exists?: boolean;
@@ -514,7 +514,7 @@ export class PostgresEngine implements BrainEngine {
         && (!probeCr.pages_cr_mode_exists || !probeCr.pages_corpus_generation_exists))
       || (probe.sources_exists
           && (!probeCr.sources_cr_mode_exists || !probeCr.sources_trust_fm_exists));
-    // v0.40.5.0 (v91): pages.generation BIGINT bumped by
+    // v0.40.3.0 (v91): pages.generation BIGINT bumped by
     // bump_page_generation_trg. pages_generation_idx in SCHEMA_SQL references
     // it. Pre-v91 brains crash without the column; bootstrap adds it before
     // SCHEMA_SQL replay creates the index.
@@ -731,7 +731,7 @@ export class PostgresEngine implements BrainEngine {
     }
 
     if (needsContextualRetrievalColumns) {
-      // v0.40.5.0 v90 (contextual_retrieval_columns, renumbered from
+      // v0.40.3.0 v90 (contextual_retrieval_columns, renumbered from
       // v0.40.3.0 v81 on master merge). Five additive columns wiring the
       // three-tier wrapper ladder. Defense-in-depth probes; v90 runs later
       // via runMigrations and is idempotent (ADD COLUMN IF NOT EXISTS).
@@ -744,7 +744,7 @@ export class PostgresEngine implements BrainEngine {
     }
 
     if (needsPagesGeneration) {
-      // v0.40.5.0 v91 (pages_generation_trigger_and_bookmark):
+      // v0.40.3.0 v91 (pages_generation_trigger_and_bookmark):
       // pages.generation BIGINT. SCHEMA_SQL CREATE INDEX
       // pages_generation_idx ON pages (generation) crashes on pre-v91 brains
       // without this. The trigger and index land via v91 migration run

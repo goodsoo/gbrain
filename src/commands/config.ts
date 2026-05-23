@@ -280,7 +280,7 @@ export async function runConfig(engine: BrainEngine, args: string[]) {
       }
     }
 
-    // v0.40.5.0 (D3 + Phase 2B): capture the OLD search.mode BEFORE the
+    // v0.40.3.0 (D3 + Phase 2B): capture the OLD search.mode BEFORE the
     // setConfig so summarizeTransition() can classify the kind correctly.
     // Read fails silently → oldMode null → treated as broadening.
     let oldSearchMode: string | null = null;
@@ -298,7 +298,7 @@ export async function runConfig(engine: BrainEngine, args: string[]) {
     // scrollback; echoing the raw value to stderr leaks the secret.
     console.log(`Set ${key} = ${redactConfigValue(key, value)}`);
 
-    // v0.40.5.0 (D3 + Phase 2B): mode-switch UX. Fires only on
+    // v0.40.3.0 (D3 + Phase 2B): mode-switch UX. Fires only on
     // search.mode writes. Honors GBRAIN_NO_MODE_SWITCH_UX=1 + non-TTY.
     // The hook is best-effort — UX failures must NEVER break a config
     // set that already persisted.

@@ -38,7 +38,7 @@ import { writeMountsCache, clearMountsCache } from '../core/mounts-cache.ts';
 import { GBrainError } from '../core/types.ts';
 
 function getMountsDir(): string { return join(homedir(), '.gbrain'); }
-// v0.40.5.0: GBRAIN_MOUNTS_PATH override exists for tests (libuv caches
+// v0.40.3.0: GBRAIN_MOUNTS_PATH override exists for tests (libuv caches
 // homedir() at startup on some platforms; HOME mutation alone isn't
 // reliably picked up). Production callers don't set this.
 function getMountsPath(): string {
@@ -401,7 +401,7 @@ export async function runMounts(args: string[]): Promise<void> {
 
 /**
  * Shared writer for boolean-flag verbs (enable/disable/trust-frontmatter/
- * untrust-frontmatter). v0.40.5.0 D4 picked separate verbs over a single
+ * untrust-frontmatter). v0.40.3.0 D4 picked separate verbs over a single
  * `set <flag> <value>` mutator because validation actually matters per-flag
  * (e.g., trust_frontmatter_overrides is security-relevant; future flags may
  * need bespoke prompts).
@@ -479,7 +479,7 @@ EXAMPLES
   # Remove a mount
   gbrain mounts remove yc-media
 
-v0.40.5.0 ADDITIONS
+v0.40.3.0 ADDITIONS
   gbrain mounts enable <id>             — re-enable a disabled mount
   gbrain mounts disable <id>            — toggle a mount off without removing
   gbrain mounts trust-frontmatter <id>  — let this mount's per-page

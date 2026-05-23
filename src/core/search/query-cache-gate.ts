@@ -1,5 +1,5 @@
 /**
- * Cache invalidation gate (v0.40.5.0 — D2 + D6 + D11)
+ * Cache invalidation gate (v0.40.3.0 — D2 + D6 + D11)
  *
  * Two pure helpers wired by query-cache.ts at store + lookup time. Pure
  * surface lets us unit-test the two-layer gate logic without a real cache.
@@ -13,7 +13,7 @@
  *   pair, compare to current `pages.generation`. Any mismatch (page
  *   deleted, page bumped) invalidates.
  *
- * Backward compat: rows stored before v0.40.5.0 have
+ * Backward compat: rows stored before v0.40.3.0 have
  *   `max_generation_at_store = 0` AND `page_generations = '{}'::jsonb`.
  *   Bookmark check: `MAX <= 0` is false on any populated brain, so we fall
  *   through to Layer 2; Layer 2 sees `'{}'::jsonb` and is vacuously valid.
@@ -132,7 +132,7 @@ export const CACHE_GATE_WHERE_CLAUSE = `
     (SELECT COALESCE(MAX(generation), 0) FROM pages) <= qc.max_generation_at_store
     OR
     -- Layer 2 (per-page snapshot): bookmark fired, but maybe this row's
-    -- specific result set isn't affected. Pre-v0.40.5.0 rows have
+    -- specific result set isn't affected. Pre-v0.40.3.0 rows have
     -- page_generations = '{}'::jsonb and serve vacuously (legacy compat —
     -- IRON-RULE regression in test/e2e/cache-gate-pglite.test.ts).
     (

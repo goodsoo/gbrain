@@ -145,7 +145,7 @@ export class SemanticQueryCache {
       // A tokenmax write (expansion=on, limit=50) and a conservative read
       // (no expansion, limit=10) have distinct knobs hashes and miss each
       // other. Rows with NULL knobs_hash (pre-v0.32.3) are excluded.
-      // v0.40.5.0: query_cache row aliased `qc` so the two-layer gate
+      // v0.40.3.0: query_cache row aliased `qc` so the two-layer gate
       // fragment in CACHE_GATE_WHERE_CLAUSE can reference qc.max_generation_at_store
       // + qc.page_generations against the live pages table.
       const rows = await this.engine.executeRaw<{
@@ -214,7 +214,7 @@ export class SemanticQueryCache {
     const id = cacheRowId(queryText, sourceId, knobsHash);
     const vec = embeddingToPgVector(queryEmbedding);
 
-    // v0.40.5.0: capture the per-page snapshot + corpus-state bookmark
+    // v0.40.3.0: capture the per-page snapshot + corpus-state bookmark
     // for the two-layer cache gate. Pure helper from query-cache-gate.ts
     // handles the pre-v91 brain fallback (empty snapshot, zero bookmark
     // \u2014 legacy compat preserved).
@@ -229,11 +229,11 @@ export class SemanticQueryCache {
       // distinct rows. The PK is `id` (which already encodes the hash),
       // so ON CONFLICT (id) DO UPDATE just refreshes the same-mode row.
       //
-      // v0.40.5.0: page_generations JSONB + max_generation_at_store BIGINT
+      // v0.40.3.0: page_generations JSONB + max_generation_at_store BIGINT
       // stamped per D11 (cache invalidation gate). page_generations is
       // sent as a JSON.stringify and cast to JSONB inside the SQL; pre-v91
       // brains store an empty `{}` + zero bookmark (legacy compat per
-      // the v0.40.5.0 IRON-RULE).
+      // the v0.40.3.0 IRON-RULE).
       await this.engine.executeRaw(
         `INSERT INTO query_cache (id, query_text, source_id, knobs_hash, embedding, results, meta, ttl_seconds, page_generations, max_generation_at_store, created_at)
          VALUES ($1, $2, $3, $4, $5::vector, $6::jsonb, $7::jsonb, $8, $9::jsonb, $10, now())

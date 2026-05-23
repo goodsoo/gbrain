@@ -42,12 +42,12 @@ export interface Check {
   issues?: Array<{ type: string; skill: string; action: string; fix?: any }>;
   /**
    * v0.36+ brain-health-100: structured remediation jobs per check.
-   * Populated by the recommendation generator + (v0.40.5.0 T8b) individual
+   * Populated by the recommendation generator + (v0.40.3.0 T8b) individual
    * checks (lint, integrity, sync_failures). Consumed by
    * `gbrain doctor --remediation-plan` / `--remediate`. Optional and
    * additive — schema_version stays at 2 (D4).
    *
-   * v0.40.5.0 (D6): typed to RemediationStep[] from the canonical
+   * v0.40.3.0 (D6): typed to RemediationStep[] from the canonical
    * src/core/remediation-step.ts so check authors can use
    * `makeRemediationStep()` factory without hand-rolling the shape.
    */
@@ -2255,7 +2255,7 @@ export async function runDoctor(engine: BrainEngine | null, args: string[], dbSo
       const codeSummary = summarizeFailuresByCode(unacked);
       const codeBreakdown = codeSummary.map(s => `${s.code}=${s.count}`).join(', ');
       const preview = unacked.slice(0, 3).map(f => `${f.path} (${f.error.slice(0, 60)})`).join('; ');
-      // v0.40.5.0 T8b (D8 + D12 Bug 3): emit a single sync-retry-failed
+      // v0.40.3.0 T8b (D8 + D12 Bug 3): emit a single sync-retry-failed
       // step. sync-skip-failed is DELIBERATELY NOT emitted as a remediation
       // — auto-skipping failed syncs hides data loss. Operators can still
       // run `gbrain sync --skip-failed` manually.
@@ -3192,7 +3192,7 @@ export async function runDoctor(engine: BrainEngine | null, args: string[], dbSo
         message: `Sampled ${res.pagesScanned} pages; no bare-tweet phrases or external links.`,
       });
     } else if (res.bareHits.length > 0) {
-      // v0.40.5.0 T8b (D8): emit integrity-auto RemediationStep.
+      // v0.40.3.0 T8b (D8): emit integrity-auto RemediationStep.
       // Three-bucket repair handled by `gbrain integrity auto` (the
       // existing CLI). Deterministic — no LLM cost.
       const { makeRemediationStep } = await import('../core/remediation-step.ts');

@@ -90,14 +90,14 @@ CREATE TABLE IF NOT EXISTS pages (
   -- v0.37.0 (migration v79): real stale-page signal for gbrain lsd
   -- (mirrors src/schema.sql). NULL = never retrieved.
   last_retrieved_at     TIMESTAMPTZ,
-  -- v0.40.5.0 contextual retrieval (renumbered from v81 to v90 on master
+  -- v0.40.3.0 contextual retrieval (renumbered from v81 to v90 on master
   -- merge; mirrors src/schema.sql).
   -- contextual_retrieval_mode is the tier the page was last embedded under;
   -- corpus_generation is the composite document-side provenance hash used by
   -- query_cache.page_generations invalidation.
   contextual_retrieval_mode  TEXT,
   corpus_generation          TEXT,
-  -- v0.40.5.0 cache invalidation gate (migration v91; mirrors src/schema.sql).
+  -- v0.40.3.0 cache invalidation gate (migration v91; mirrors src/schema.sql).
   -- Bumped by bump_page_generation_trg on INSERT (initial) and on UPDATE
   -- when content columns IS DISTINCT FROM. Read by the per-page snapshot
   -- check in query-cache-gate.ts.
@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS pages (
   CONSTRAINT pages_source_slug_key UNIQUE (source_id, slug)
 );
 
--- v0.40.5.0 cache invalidation trigger (migration v91; mirrors src/schema.sql).
+-- v0.40.3.0 cache invalidation trigger (migration v91; mirrors src/schema.sql).
 -- BEFORE INSERT OR UPDATE so every write path bumps generation per D6 /
 -- codex #4. INSERT: pages get COALESCE(MAX(generation), 0) + 1 so the
 -- bookmark gate fires for any cache row stored before the new page existed.

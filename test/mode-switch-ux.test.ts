@@ -1,5 +1,5 @@
 /**
- * v0.40.5.0 — mode-switch UX (D3)
+ * v0.40.3.0 — mode-switch UX (D3)
  *
  * Pure unit tests for the 3 exports:
  *   - summarizeTransition: 5-cell matrix + invalid fallthrough

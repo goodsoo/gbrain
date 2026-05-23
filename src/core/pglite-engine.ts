@@ -437,7 +437,7 @@ export class PGLiteEngine implements BrainEngine {
           || !probe.pages_ingested_at_exists
           || !probe.pages_source_uri_exists
           || !probe.pages_source_kind_exists);
-    // v0.40.5.0 (v90, renumbered from v0.40.3.0 v81 on master merge):
+    // v0.40.3.0 (v90, renumbered from v0.40.3.0 v81 on master merge):
     // contextual retrieval columns on pages + sources. No SCHEMA_SQL index
     // references them today, but bootstrap probes are defense-in-depth so
     // future schema work doesn't wedge pre-v90 brains.
@@ -445,7 +445,7 @@ export class PGLiteEngine implements BrainEngine {
         && (!probe.pages_cr_mode_exists || !probe.pages_corpus_generation_exists))
       || (probe.sources_exists
           && (!probe.sources_cr_mode_exists || !probe.sources_trust_fm_exists));
-    // v0.40.5.0 (v91): pages.generation BIGINT bumped by
+    // v0.40.3.0 (v91): pages.generation BIGINT bumped by
     // bump_page_generation_trg. Forward-referenced by pages_generation_idx
     // in PGLITE_SCHEMA_SQL. The trigger itself is created in the schema
     // body; bootstrap only needs to add the column on pre-v91 brains so
@@ -665,7 +665,7 @@ export class PGLiteEngine implements BrainEngine {
     }
 
     if (needsContextualRetrievalColumns) {
-      // v0.40.5.0 v90 (contextual_retrieval_columns, renumbered from
+      // v0.40.3.0 v90 (contextual_retrieval_columns, renumbered from
       // v0.40.3.0 v81 on master merge). Five additive columns wiring the
       // three-tier wrapper ladder. Defense-in-depth probes; v90 runs later
       // via runMigrations and is idempotent (ADD COLUMN IF NOT EXISTS).
@@ -678,7 +678,7 @@ export class PGLiteEngine implements BrainEngine {
     }
 
     if (needsPagesGeneration) {
-      // v0.40.5.0 v91 (pages_generation_trigger_and_bookmark): pages.generation
+      // v0.40.3.0 v91 (pages_generation_trigger_and_bookmark): pages.generation
       // BIGINT + query_cache.max_generation_at_store BIGINT + trigger + index.
       // PGLITE_SCHEMA_SQL CREATE INDEX pages_generation_idx ON pages
       // (generation) crashes on pre-v91 brains without this. The trigger

@@ -1,5 +1,5 @@
 /**
- * v0.40.5.0 — query cache invalidation gate (end-to-end against PGLite)
+ * v0.40.3.0 — query cache invalidation gate (end-to-end against PGLite)
  *
  * The cache gate has TWO layers:
  *   Layer 1: corpus-state bookmark (MAX(generation) FROM pages)
@@ -14,7 +14,7 @@
  *      (bookmark fires; snapshot intact) — codex's "subtle but correct" case
  *   4. INSERT new page → lookup serves via Layer 2 (bookmark fires;
  *      snapshot empty for new page, no conflict) — codex #4 INSERT coverage
- *   5. LEGACY ROW (pre-v0.40.5.0 shape: empty {} snapshot, zero bookmark)
+ *   5. LEGACY ROW (pre-v0.40.3.0 shape: empty {} snapshot, zero bookmark)
  *      → lookup HIT (IRON-RULE backward compat)
  *   6. DELETE a result page → lookup returns MISS (LEFT JOIN NULL)
  */
@@ -136,13 +136,13 @@ describe('cache gate end-to-end (PGLite)', () => {
     expect(hit.hit).toBe(true);
   });
 
-  test('legacy row (pre-v0.40.5.0 shape) serves normally — IRON-RULE backward compat', async () => {
+  test('legacy row (pre-v0.40.3.0 shape) serves normally — IRON-RULE backward compat', async () => {
     const p1 = await seedPage('test/p1', 'gamma delta');
     const emb = fakeEmbedding(4);
     const results: SearchResult[] = [
       { page_id: p1, slug: 'test/p1', title: 'test/p1', snippet: 'g', score: 1.0 } as unknown as SearchResult,
     ];
-    // Simulate a pre-v0.40.5.0 row by writing with the new gate then
+    // Simulate a pre-v0.40.3.0 row by writing with the new gate then
     // hand-mutating page_generations + max_generation_at_store to the
     // legacy shape.
     await cache.store('gamma delta', emb, results, fakeMeta(), { sourceId: 'default' });

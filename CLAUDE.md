@@ -559,12 +559,12 @@ Key commands added for Minions (job queue):
 - `gbrain jobs smoke [--sigkill-rescue]` — health smoke test. `--sigkill-rescue` is the v0.13.1 regression guard for #219: simulates a killed worker and asserts the stalled job is requeued instead of dead-lettered on first stall.
 - `gbrain jobs work [--queue Q] [--concurrency N]` — start worker daemon (Postgres only)
 
-Key commands added in v0.40.5.0 (contextual retrieval + cache gate + 4 CLI verbs):
+Key commands added in v0.40.3.0 (contextual retrieval + cache gate + 4 CLI verbs):
 - `gbrain mounts enable <id>` / `disable <id>` — toggle a mount without removing it.
 - `gbrain mounts trust-frontmatter <id>` / `untrust-frontmatter <id>` — let a mounted brain's per-page `contextual_retrieval_mode` frontmatter override the source default. Off by default for mounts (security posture per D15); host source is always trusted.
 - `gbrain sources set-cr-mode <id> <none|title|per_chunk_synopsis>` — per-source contextual retrieval mode override. Pass `unset` or `default` to clear (NULL falls through to global). Missing source ID fails loudly with paste-ready `gbrain sources list` hint.
 - `gbrain config set search.mode tokenmax` triggers a mode-switch banner explaining the per-chunk Haiku synopsis backfill cost, and (on TTY + active Minion worker) offers to submit `gbrain reindex --markdown` as a Minion job. Non-TTY callers get a paste-ready hint to stderr instead of a silent stall. Suppress with `GBRAIN_NO_MODE_SWITCH_UX=1` for CI fixtures.
-- Cache invalidation gate is now two-layer (per D11 codex finding): Layer 1 cheap MAX(generation) bookmark via `pages_generation_idx`, Layer 2 per-page snapshot via jsonb_each + LEFT JOIN pages. Pre-v0.40.5.0 cache rows with empty `{}` snapshot are vacuously valid (IRON-RULE backward compat).
+- Cache invalidation gate is now two-layer (per D11 codex finding): Layer 1 cheap MAX(generation) bookmark via `pages_generation_idx`, Layer 2 per-page snapshot via jsonb_each + LEFT JOIN pages. Pre-v0.40.3.0 cache rows with empty `{}` snapshot are vacuously valid (IRON-RULE backward compat).
 - KNOBS_HASH_VERSION bumped 3 → 5 (skipped past 4 reserved by salem's v0.40.4 graph-signals work). One-time cache-row invalidation on upgrade; refills within TTL.
 - Three new Minion handlers wired into RemediationStep consumer pattern: `lint-fix`, `integrity-auto`, `sync-retry-failed`. Thin wrappers around already-shipping CLI commands; NOT in PROTECTED_JOB_NAMES (idempotent, no shell exec, MCP-safe). `sync-skip-failed` deliberately NOT in this set per codex D12 Bug 3.
 - `src/core/remediation-step.ts` (NEW canonical module) exports RemediationStep type + makeRemediationStep factory + canonical-JSON idempotencyKey() per codex D12 Bug 2. Future doctor checks emit RemediationSteps via the factory instead of hand-rolling the shape.

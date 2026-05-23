@@ -1,5 +1,5 @@
 /**
- * v0.40.5.0 — RemediationStep (D6 refactor + factory tests)
+ * v0.40.3.0 — RemediationStep (D6 refactor + factory tests)
  *
  * The canonical RemediationStep type lives at src/core/remediation-step.ts
  * (lifted from brain-score-recommendations.ts). This file pins the

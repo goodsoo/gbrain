@@ -38,13 +38,13 @@ export interface Check {
  */
 
 /**
- * v0.40.5.0: RemediationStep + RemediationSeverity + RemediationStatus
+ * v0.40.3.0: RemediationStep + RemediationSeverity + RemediationStatus
  * lifted to src/core/remediation-step.ts so other doctor checks (lint,
  * integrity, sync_failures) can emit RemediationStep without circular
  * importing brain-score code. Re-exported here for back-compat AND to
  * avoid forcing every importer to update the path in one PR.
  *
- * The `Remediation` name is deprecated as of v0.40.5.0; use
+ * The `Remediation` name is deprecated as of v0.40.3.0; use
  * `RemediationStep` going forward. Same shape; rename was for clarity.
  */
 export {

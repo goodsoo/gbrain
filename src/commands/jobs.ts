@@ -1097,7 +1097,7 @@ export async function registerBuiltinHandlers(worker: MinionWorker, engine: Brai
     return result;
   });
 
-  // v0.40.5.0 T8b: RemediationStep consumer handlers. Thin wrappers
+  // v0.40.3.0 T8b: RemediationStep consumer handlers. Thin wrappers
   // around already-shipping CLI commands so doctor --remediate can
   // submit them as Minion jobs. NOT in PROTECTED_JOB_NAMES (no shell
   // exec, no cost spike, MCP-safe).

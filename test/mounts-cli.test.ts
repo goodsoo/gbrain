@@ -239,12 +239,12 @@ describe('runMounts — end-to-end add/list/remove', () => {
   });
 });
 
-// v0.40.5.0 (D4 + T6): 4 new verbs — enable, disable, trust-frontmatter,
+// v0.40.3.0 (D4 + T6): 4 new verbs — enable, disable, trust-frontmatter,
 // untrust-frontmatter. We invoke the public runMounts() dispatcher so the
 // switch table is exercised end-to-end, then read back the mounts.json
 // to assert the flag was persisted.
 
-describe('v0.40.5.0 — mount flag verbs', () => {
+describe('v0.40.3.0 — mount flag verbs', () => {
   // Import runMounts lazily so the env-mutating withFakeHome wrapper has
   // time to redirect HOME before the module reads it.
   async function seedMount(mountsPath: string, id: string): Promise<void> {
@@ -340,7 +340,7 @@ describe('v0.40.5.0 — mount flag verbs', () => {
 /**
  * Async variant of withFakeHome for tests that await runMounts().
  *
- * v0.40.5.0: ALSO sets GBRAIN_MOUNTS_PATH because libuv caches homedir()
+ * v0.40.3.0: ALSO sets GBRAIN_MOUNTS_PATH because libuv caches homedir()
  * on some platforms, so HOME mutation alone isn't picked up by
  * runMounts's internal getMountsPath() call.
  */

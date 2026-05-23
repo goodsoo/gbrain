@@ -4017,7 +4017,7 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 90,
     name: 'contextual_retrieval_columns',
-    // v0.40.5.0 contextual retrieval wave (renumbered from v81 on master
+    // v0.40.3.0 contextual retrieval wave (renumbered from v81 on master
     // merge — v82-v88 claimed by master's v0.38/v0.39 cathedrals, v89
     // reserved by garrytan/v0.40.2.0-trajectory-routing for
     // facts_event_type_column).
@@ -4067,7 +4067,7 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 91,
     name: 'pages_generation_trigger_and_bookmark',
-    // v0.40.5.0 cache invalidation gate. Two columns + a trigger + an
+    // v0.40.3.0 cache invalidation gate. Two columns + a trigger + an
     // index. Wires the document-side staleness signal for the new
     // query_cache two-layer gate.
     //

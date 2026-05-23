@@ -1,5 +1,5 @@
 /**
- * RemediationStep (v0.40.5.0 — D6 refactor)
+ * RemediationStep (v0.40.3.0 — D6 refactor)
  *
  * Canonical structured-remediation type. Any doctor check that wants to
  * produce a paste-ready agent fix returns RemediationStep[] from its

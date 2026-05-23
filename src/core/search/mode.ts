@@ -526,7 +526,7 @@ export function attributeKnob<K extends keyof ModeBundle>(
 //
 // v0.39 T21 (master): schema_pack identity fields added under v=4.
 //
-// v0.40.5.0 (this branch, per D8 sequencing): contextual_retrieval and
+// v0.40.3.0 (this branch, per D8 sequencing): contextual_retrieval and
 // contextual_retrieval_disabled added under v=5. Sequenced behind salem's
 // pending v=4 graph signals work — first to land claims v=4; second
 // rebases to v=5 (we did, since master's v=4 already landed before us).
@@ -614,7 +614,7 @@ export function knobsHash(
     // served from a row that resolved against pack B.
     `pack=${ctx?.schemaPack ?? 'none'}`,
     `pver=${ctx?.schemaPackVersion ?? 'none'}`,
-    // v=5 contextual retrieval additions (v0.40.5.0, per D8 sequencing
+    // v=5 contextual retrieval additions (v0.40.3.0, per D8 sequencing
     // behind salem's pending v=4 graph signals). A query against a brain
     // on tokenmax (per-chunk synopsis) must NEVER be served from a cache
     // row written when the brain was on balanced (title-only) — different

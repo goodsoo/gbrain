@@ -1,8 +1,8 @@
 /**
- * v0.40.5.0 — capture-generation regression (D3 + codex #5 strengthened)
+ * v0.40.3.0 — capture-generation regression (D3 + codex #5 strengthened)
  *
  * The v0.38 ingestion cathedral added a new write path to pages via the
- * `ingest_capture` Minion handler. The v0.40.5.0 cache-invalidation gate
+ * `ingest_capture` Minion handler. The v0.40.3.0 cache-invalidation gate
  * relies on pages.generation being bumped by EVERY write path, via the
  * BEFORE INSERT OR UPDATE trigger on pages.
  *

@@ -1,5 +1,5 @@
 /**
- * Mode-switch UX (v0.40.5.0 — D3)
+ * Mode-switch UX (v0.40.3.0 — D3)
  *
  * When the user runs `gbrain config set search.mode <X>`, this module
  * surfaces a banner explaining the consequences and offers follow-up

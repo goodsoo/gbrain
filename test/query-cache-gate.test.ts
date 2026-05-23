@@ -1,5 +1,5 @@
 /**
- * v0.40.5.0 — query-cache-gate.ts (cache invalidation gate)
+ * v0.40.3.0 — query-cache-gate.ts (cache invalidation gate)
  *
  * Pure unit tests for the two helpers. Both helpers are pure functions
  * (the validator) or take an engine argument (the snapshot builder); the
@@ -26,7 +26,7 @@ import {
 } from '../src/core/search/query-cache-gate.ts';
 
 describe('validateCacheRowAgainstPages (pure validator)', () => {
-  test('vacuously valid for legacy empty snapshot (regression: pre-v0.40.5.0 rows must serve)', () => {
+  test('vacuously valid for legacy empty snapshot (regression: pre-v0.40.3.0 rows must serve)', () => {
     const snapshot: PageGenerationsSnapshot = {
       page_generations: {},
       max_generation_at_store: 0,
@@ -231,7 +231,7 @@ describe('CACHE_GATE_WHERE_CLAUSE (SQL shape regression)', () => {
     expect(CACHE_GATE_WHERE_CLAUSE).toContain('LEFT JOIN pages');
   });
 
-  test('legacy empty-snapshot shortcut present (regression: pre-v0.40.5.0 rows must serve)', () => {
+  test('legacy empty-snapshot shortcut present (regression: pre-v0.40.3.0 rows must serve)', () => {
     expect(CACHE_GATE_WHERE_CLAUSE).toContain(`qc.page_generations = '{}'::jsonb`);
   });
 

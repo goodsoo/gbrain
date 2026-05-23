@@ -1,5 +1,5 @@
 /**
- * v0.40.5.0 — gbrain sources set-cr-mode <id> <mode>
+ * v0.40.3.0 — gbrain sources set-cr-mode <id> <mode>
  *
  * D5 + T7 + idempotent-pebble Failure-Modes critical-gap closure.
  *

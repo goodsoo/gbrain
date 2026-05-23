@@ -275,7 +275,7 @@ async function runRemove(engine: BrainEngine, args: string[]): Promise<void> {
 
 // ── Subcommand: archive (soft-delete) ───────────────────────
 
-// ── Subcommand: set-cr-mode (v0.40.5.0 — D5) ────────────────
+// ── Subcommand: set-cr-mode (v0.40.3.0 — D5) ────────────────
 //
 // `gbrain sources set-cr-mode <id> <none|title|per_chunk_synopsis>`
 // writes sources.contextual_retrieval_mode for the per-source override
@@ -314,7 +314,7 @@ async function runSetCrMode(engine: BrainEngine, args: string[]): Promise<void> 
   }
 
   // Loud-rejection on missing source. Closes the idempotent-pebble Failure
-  // Modes "critical gap": pre-v0.40.5.0 there was no surface that wrote to
+  // Modes "critical gap": pre-v0.40.3.0 there was no surface that wrote to
   // sources.contextual_retrieval_mode, so the silent-no-op via SQL UPDATE
   // matching 0 rows was the failure mode the gap warning called out.
   const exists = await engine.executeRaw<{ id: string }>(
@@ -659,7 +659,7 @@ Subcommands:
   unfederate <id>                   Isolate source from default search.
   set-cr-mode <id> <none|title|per_chunk_synopsis>
                                     Per-source contextual retrieval mode
-                                    override (v0.40.5.0). Pass "unset" or
+                                    override (v0.40.3.0). Pass "unset" or
                                     "default" to clear (NULL falls through
                                     to the global search.mode bundle).
 

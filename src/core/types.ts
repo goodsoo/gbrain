@@ -140,7 +140,7 @@ export interface Page {
   /** Server-stamped first-write audit timestamp; CV12 COALESCE-preserved across edits. */
   ingested_at?: Date | null;
   /**
-   * v0.40.5.0 (renumbered from v0.40.3.0 v81 to v90 on master merge):
+   * v0.40.3.0 (renumbered from v0.40.3.0 v81 to v90 on master merge):
    * which contextual retrieval tier the page was last embedded under. One
    * of CRMode ('none' | 'title' | 'per_chunk_synopsis'). NULL on pre-v90
    * rows; drift detection treats NULL as 'none' for reindex predicates,
@@ -149,7 +149,7 @@ export interface Page {
    */
   contextual_retrieval_mode?: CRMode | null;
   /**
-   * v0.40.5.0 (renumbered from v0.40.3.0 v81 to v90 on master merge):
+   * v0.40.3.0 (renumbered from v0.40.3.0 v81 to v90 on master merge):
    * composite hash of (synopsis_prompt_version, haiku_model,
    * title_wrapper_version, embedding_model) captured at write time by
    * `reembedPageWithContextualRetrieval`. Used by `query_cache.page_generations`

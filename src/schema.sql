@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS pages (
   -- (NOT inside engine methods — internal callers must not pollute the
   -- signal). NULL = never retrieved (LSD prioritizes these first).
   last_retrieved_at     TIMESTAMPTZ,
-  -- v0.40.5.0 contextual retrieval (renumbered from v81 to v90 on master
+  -- v0.40.3.0 contextual retrieval (renumbered from v81 to v90 on master
   -- merge). contextual_retrieval_mode is what tier the page was last embedded
   -- under (NULL = pre-v90 = treated as 'none' for drift detection).
   -- corpus_generation is the composite hash of (synopsis_prompt_version,
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS pages (
   -- rows against any current generation.
   contextual_retrieval_mode  TEXT,
   corpus_generation          TEXT,
-  -- v0.40.5.0 cache invalidation gate (migration v91). Monotonic per-page
+  -- v0.40.3.0 cache invalidation gate (migration v91). Monotonic per-page
   -- counter bumped by bump_page_generation_trg on INSERT (initial value =
   -- MAX(generation) + 1 so the bookmark fires for any cache row stored
   -- before this page existed — codex #4) and on UPDATE when any column in
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS pages (
   CONSTRAINT pages_source_slug_key UNIQUE (source_id, slug)
 );
 
--- v0.40.5.0 cache invalidation trigger (migration v91; mirrored in
+-- v0.40.3.0 cache invalidation trigger (migration v91; mirrored in
 -- src/core/pglite-schema.ts). BEFORE INSERT OR UPDATE so every write path
 -- bumps generation per D6 / codex #4. INSERT: pages get
 -- COALESCE(MAX(generation), 0) + 1 so the bookmark gate fires for any
@@ -165,7 +165,7 @@ CREATE TRIGGER bump_page_generation_trg
   FOR EACH ROW
   EXECUTE FUNCTION bump_page_generation_fn();
 
--- v0.40.5.0 supports O(log N) MAX(generation) for the Layer 1 bookmark
+-- v0.40.3.0 supports O(log N) MAX(generation) for the Layer 1 bookmark
 -- check in query-cache-gate.ts. Plain btree (DESC unnecessary; Postgres
 -- backward-scans plain btrees for MAX per codex #8). CONCURRENTLY would
 -- be used inside a migration; in the schema-bootstrap path it's a plain

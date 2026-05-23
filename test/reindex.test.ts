@@ -134,7 +134,7 @@ describe('gbrain reindex --markdown (v0.32.7)', () => {
     // Pre-bump page (chunker_version = 1)
     await seedLegacyPage('note-up', 'pending body');
     // Already-bumped page (chunker_version = current) AND contextual
-    // retrieval mode set. v0.40.5.0: predicate also catches
+    // retrieval mode set. v0.40.3.0: predicate also catches
     // contextual_retrieval_mode IS NULL, so seeding 'title' here lets the
     // page legitimately skip the reindex sweep.
     await engine.executeRaw(

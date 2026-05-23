@@ -2,7 +2,7 @@
 
 All notable changes to GBrain will be documented in this file.
 
-## [0.40.5.0] - 2026-05-22
+## [0.40.3.0] - 2026-05-22
 
 **Your search now understands what each chunk is about — AND its cached results expire the moment a page changes.**
 
@@ -80,7 +80,7 @@ LOOKUP PATH (query-cache.ts:lookup) — TWO-LAYER
   Layer 2 (per-page): jsonb_each + LEFT JOIN pages
                       page deleted → invalidate
                       page bumped → invalidate
-                      pre-v0.40.5.0 rows with empty {} snapshot → vacuously valid
+                      pre-v0.40.3.0 rows with empty {} snapshot → vacuously valid
 ```
 
 ### Things to watch
@@ -132,7 +132,7 @@ The wave went through two rounds of /plan-eng-review and one /codex outside-voic
 - `test/e2e/cache-gate-pglite.test.ts` (6 cases: store→HIT, content UPDATE→MISS, INSERT new page→HIT codex #4 case, legacy row→HIT IRON-RULE, soft-delete→MISS, multi-page partial bump→MISS).
 - `test/e2e/capture-generation-regression.test.ts` (3 cases: INSERT path bumps MAX, UPDATE path bumps generation, idempotent re-capture does NOT bump).
 
-## To take advantage of v0.40.5.0
+## To take advantage of v0.40.3.0
 
 `gbrain upgrade` should do this automatically. If it didn't, or if `gbrain doctor`
 warns about a partial migration:
@@ -141,7 +141,7 @@ warns about a partial migration:
    ```bash
    gbrain apply-migrations --yes
    ```
-2. **Your agent reads `skills/migrations/v0.40.5.0.md` the next time you interact with it.**
+2. **Your agent reads `skills/migrations/v0.40.3.0.md` the next time you interact with it.**
    The migration is mostly mechanical (schema + bootstrap probes); no agent-side action required beyond the optional `--mode tokenmax` opt-in.
 3. **Verify the outcome:**
    ```bash

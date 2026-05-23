@@ -39,7 +39,7 @@ const BRAIN_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 /**
  * Path to mounts.json. Lazy to avoid homedir() at module scope.
  *
- * v0.40.5.0: GBRAIN_MOUNTS_PATH override exists for tests (homedir() is
+ * v0.40.3.0: GBRAIN_MOUNTS_PATH override exists for tests (homedir() is
  * cached at startup by libuv on some platforms, so withFakeHome's HOME
  * mutation isn't always picked up). Production callers don't set this.
  */
@@ -75,7 +75,7 @@ export interface MountEntry {
   /** Managed by `gbrain mounts sync` (PR 1). */
   last_synced_at?: string;
   /**
-   * v0.40.5.0: per-mount frontmatter-override trust gate (D15). Default
+   * v0.40.3.0: per-mount frontmatter-override trust gate (D15). Default
    * FALSE — mounts must explicitly opt into honoring frontmatter
    * `contextual_retrieval_mode` overrides via
    * `gbrain mounts trust-frontmatter <id>`. The host source (id='default')
@@ -280,7 +280,7 @@ export function loadMounts(mountsPath: string = getMountsPath()): MountEntry[] {
       enabled: entry.enabled ?? true,
       expected_sha: entry.expected_sha,
       last_synced_at: entry.last_synced_at,
-      // v0.40.5.0 (D4): per-mount frontmatter-override trust gate.
+      // v0.40.3.0 (D4): per-mount frontmatter-override trust gate.
       // Threaded through the projection so trust-frontmatter / untrust-frontmatter
       // verbs round-trip cleanly. Default false: mounts opt in explicitly.
       trust_frontmatter_overrides: entry.trust_frontmatter_overrides ?? false,
