@@ -1057,13 +1057,22 @@ async function handleCliOnly(command: string, args: string[]) {
   if (command === 'dream') {
     // Dream mirrors doctor's pattern: filesystem phases run without a DB,
     // so an engine connection failure is non-fatal. runCycle honestly
-    // reports DB phases as skipped when engine is null.
+    // reports DB phases as skipped when engine is null. v0.41.13 (#1422):
+    // bind + surface the error on stderr so the user knows WHY DB phases
+    // were skipped instead of seeing a silent "lint + backlinks done"
+    // and assuming the cycle actually ran. Pre-fix, foxhoundinc reported
+    // the cycle exiting 0 on PostgreSQL with every DB phase silently no-op.
     const { runDream } = await import('./commands/dream.ts');
     let eng: BrainEngine | null = null;
     try {
       eng = await connectEngine();
-    } catch {
-      // DB unavailable — lint + backlinks still run against the brain dir.
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[dream] WARNING: could not connect to DB (${msg}). ` +
+        `Running filesystem-only phases (lint, backlinks, extract). ` +
+        `DB-dependent phases (sync, embed, synthesize, etc.) will report as skipped.\n`
+      );
     }
     try {
       await runDream(eng, args);
