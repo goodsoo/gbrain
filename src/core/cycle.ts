@@ -126,12 +126,6 @@ export const ALL_PHASES: CyclePhase[] = [
   // stay as audit trail. Placed AFTER patterns (graph-fresh) and BEFORE
   // embed (so the new takes get embedded same-cycle).
   'consolidate',
-  // v0.41.11.0 — opt-in conversation-facts backfill. Default OFF; reads
-  // cycle.conversation_facts_backfill.enabled gate inside the wrapper.
-  // Ordered AFTER consolidate so consolidated takes are visible to the
-  // extractor's anti-loop check, and BEFORE embed so newly-inserted
-  // facts get embedded in the same cycle.
-  'conversation_facts_backfill',
   // v0.36.1.0 Hindsight calibration wave. Ordering rationale:
   //   - propose_takes AFTER consolidate so the proposal LLM sees the
   //     freshly-consolidated takes when deciding what's NOT yet captured
@@ -146,6 +140,12 @@ export const ALL_PHASES: CyclePhase[] = [
   'propose_takes',
   'grade_takes',
   'calibration_profile',
+  // v0.41.11.0 — opt-in conversation-facts backfill. Default OFF; reads
+  // cycle.conversation_facts_backfill.enabled gate inside the wrapper.
+  // Ordered AFTER calibration_profile (matches the runCycle dispatch
+  // block placement, which runs between the calibration trio and embed),
+  // and BEFORE embed so newly-inserted facts get embedded same-cycle.
+  'conversation_facts_backfill',
   'embed',
   'orphans',
   // v0.39 T12: passive schema-suggest. Runs LATE so post-sync brain state
