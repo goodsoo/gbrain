@@ -610,7 +610,7 @@ async function runStatus(engine: BrainEngine, args: string[]): Promise<void> {
       ? 'never'
       : formatLag(m.lag_seconds);
     const embed = `${m.embed_coverage_pct.toFixed(0)}%`;
-    // v0.41.30: embed-backfill state (active beats queued beats idle) so a
+    // v0.41.31: embed-backfill state (active beats queued beats idle) so a
     // cron operator sees deferred embedding work after `sync --all`.
     const backfill = m.backfill_active > 0
       ? `active(${m.backfill_active})`

@@ -543,7 +543,7 @@ export class PostgresEngine implements BrainEngine {
     // it. Pre-v91 brains crash without the column; bootstrap adds it before
     // SCHEMA_SQL replay creates the index.
     const needsPagesGeneration = probe.pages_exists && !probeCr.pages_generation_exists;
-    // v0.41.30 (v108): pages.embedding_signature for real stale semantics.
+    // v0.41.31 (v108): pages.embedding_signature for real stale semantics.
     // No SCHEMA_SQL index references it; bootstrap is defense-in-depth.
     const needsPagesEmbeddingSignature = probe.pages_exists && !probeCr.pages_embedding_signature_exists;
 
@@ -2134,7 +2134,7 @@ export class PostgresEngine implements BrainEngine {
 
   async countStaleChunks(opts?: { sourceId?: string; signature?: string }): Promise<number> {
     // Always JOIN pages so the embed_skip + signature predicates apply.
-    // D7: source_id scoping. v0.41.30: optional signature widens staleness
+    // D7: source_id scoping. v0.41.31: optional signature widens staleness
     // to embedding_signature drift (NULL grandfathered).
     const { where, params } = this.buildStaleChunkWhere(opts);
     const rows = await this.sql.unsafe(

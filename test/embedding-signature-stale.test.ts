@@ -1,5 +1,5 @@
 /**
- * v0.41.30 — real stale semantics via pages.embedding_signature (PGLite).
+ * v0.41.31 — real stale semantics via pages.embedding_signature (PGLite).
  *
  * Pins the commit-3 contract:
  *   - R-4 (grandfather, CRITICAL): a page embedded under a NULL signature is

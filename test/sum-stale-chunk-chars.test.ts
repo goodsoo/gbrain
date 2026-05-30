@@ -1,5 +1,5 @@
 /**
- * v0.41.30 — BrainEngine.sumStaleChunkChars tests (PGLite).
+ * v0.41.31 — BrainEngine.sumStaleChunkChars tests (PGLite).
  *
  * Sibling of countStaleChunks: sums LENGTH(chunk_text) over stale chunks so
  * the `gbrain sync --all` cost preview can price the embedding backlog.

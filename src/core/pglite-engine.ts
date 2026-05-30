@@ -533,7 +533,7 @@ export class PGLiteEngine implements BrainEngine {
     // body; bootstrap only needs to add the column on pre-v91 brains so
     // the CREATE INDEX doesn't crash.
     const needsPagesGeneration = probe.pages_exists && !probe.pages_generation_exists;
-    // v0.41.30 (v108): pages.embedding_signature for real stale semantics.
+    // v0.41.31 (v108): pages.embedding_signature for real stale semantics.
     // No SCHEMA_SQL index references it today; bootstrap is defense-in-depth
     // so future schema work doesn't wedge pre-v108 brains.
     const needsPagesEmbeddingSignature = probe.pages_exists && !probe.pages_embedding_signature_exists;

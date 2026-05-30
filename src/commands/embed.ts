@@ -378,7 +378,7 @@ async function embedPage(
   }));
 
   await engine.upsertChunks(slug, updated, opts);
-  // v0.41.30: stamp provenance so a later model/dims swap is detectable as
+  // v0.41.31: stamp provenance so a later model/dims swap is detectable as
   // stale. embedPage is the per-slug path used by `gbrain embed <slug>` AND
   // by `gbrain sync`'s post-import embed step (runEmbedCore({slugs})).
   // Guard: only stamp when EVERY chunk was (re)embedded this pass. If some
@@ -406,7 +406,7 @@ async function embedAll(
     catchUp?: boolean;
   },
 ) {
-  // v0.41.30: current embedding provenance signature. Stamped onto pages
+  // v0.41.31: current embedding provenance signature. Stamped onto pages
   // when their chunks are (re)embedded so a later model/dimension swap is
   // detectable as stale.
   const signature = currentEmbeddingSignature();
@@ -496,7 +496,7 @@ async function embedAll(
         token_count: c.token_count || Math.ceil(c.chunk_text.length / 4),
       }));
       await engine.upsertChunks(page.slug, updated, pageOpts);
-      // v0.41.30: stamp embedding provenance so a later model swap is
+      // v0.41.31: stamp embedding provenance so a later model swap is
       // detectable as stale.
       await engine.setPageEmbeddingSignature(page.slug, { sourceId: pageSourceId, signature });
       result.embedded += toEmbed.length;
@@ -566,7 +566,7 @@ async function embedAllStale(
   // that source's NULL embeddings.
   const sourceOpt = sourceId ? { sourceId } : undefined;
 
-  // v0.41.30: re-embed pages whose embedding_signature drifted (model/dims
+  // v0.41.31: re-embed pages whose embedding_signature drifted (model/dims
   // swap). dry-run must NOT mutate, so it counts signature-stale via the
   // widened predicate; a live run NULLs them first so the existing
   // NULL-embedding cursor (listStaleChunks) picks them up unchanged.
@@ -706,7 +706,7 @@ async function embedAllStale(
             token_count: c.token_count || Math.ceil(c.chunk_text.length / 4),
           }));
           await engine.upsertChunks(slug, merged, { sourceId: keySourceId });
-          // v0.41.30: stamp provenance after the page's chunks are embedded —
+          // v0.41.31: stamp provenance after the page's chunks are embedded —
           // but only when EVERY chunk was stale (fully re-embedded this pass).
           // A partially-stale page keeps preserved chunks of unknown/old
           // provenance, so don't claim it's current. (After invalidate, a

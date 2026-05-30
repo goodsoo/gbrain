@@ -2,7 +2,7 @@
 
 All notable changes to GBrain will be documented in this file.
 
-## [0.41.30.0] - 2026-05-30
+## [0.41.31.0] - 2026-05-30
 
 **Your nightly `gbrain sync --all` cron stops getting blocked. It used to
 demand `--yes` on every non-interactive run even when nothing needed
@@ -47,7 +47,7 @@ showing whether each source has embed jobs queued, running, or idle, plus when
 the last one finished. After a `sync --all` you can tell at a glance whether
 embeddings are caught up or still trickling in.
 
-## To take advantage of v0.41.30.0
+## To take advantage of v0.41.31.0
 
 `gbrain upgrade` does this automatically (it applies migration v108, which adds
 the per-page embedding-signature column). If `gbrain doctor` warns about a

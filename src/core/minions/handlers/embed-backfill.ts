@@ -124,7 +124,7 @@ export function makeEmbedBackfillHandler(engine: BrainEngine) {
         embedStaleForSource(engine, sourceId, {
           batchSize,
           signal: job.signal,
-          // v0.41.30: re-embed pages whose model signature drifted + stamp
+          // v0.41.31: re-embed pages whose model signature drifted + stamp
           // provenance as chunks land.
           embeddingSignature: currentEmbeddingSignature(),
           onProgress: ({ embedded, chunksProcessed, cursor }) => {

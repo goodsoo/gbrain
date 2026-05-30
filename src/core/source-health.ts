@@ -33,9 +33,9 @@ export interface SourceMetrics {
   failed_jobs_24h: number;
   /** Waiting + active + delayed jobs (sync OR embed-backfill) for this source. */
   queue_depth: number;
-  /** v0.41.30: embed-backfill jobs specifically active right now. */
+  /** v0.41.31: embed-backfill jobs specifically active right now. */
   backfill_active: number;
-  /** v0.41.30: embed-backfill jobs queued (waiting/delayed/waiting-children). */
+  /** v0.41.31: embed-backfill jobs queued (waiting/delayed/waiting-children). */
   backfill_queued: number;
   tracked_branch: string | null;
   priority_label: PriorityLabel;

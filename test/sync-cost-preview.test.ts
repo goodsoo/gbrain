@@ -74,7 +74,7 @@ describe('Layer 8 D1 — embedding cost model', () => {
   });
 });
 
-describe('v0.41.30 — willEmbedSynchronously (embed-mode resolver)', () => {
+describe('v0.41.31 — willEmbedSynchronously (embed-mode resolver)', () => {
   // Mirrors sync.ts:2346 effectiveNoEmbed = v2 && !serial && !noEmbed ? true : noEmbed.
   // Embed runs INLINE iff that resolves to false.
   test('v2 off → inline (legacy synchronous embed)', () => {
@@ -92,7 +92,7 @@ describe('v0.41.30 — willEmbedSynchronously (embed-mode resolver)', () => {
   });
 });
 
-describe('v0.41.30 — shouldBlockSync (cost-gate decision)', () => {
+describe('v0.41.31 — shouldBlockSync (cost-gate decision)', () => {
   // R-1: deferred NEVER blocks, even at absurd cost (the headline fix — a
   // nightly cron over a synced corpus must not exit 2).
   test('R-1: deferred never blocks, even at $999', () => {

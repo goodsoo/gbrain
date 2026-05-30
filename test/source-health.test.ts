@@ -167,7 +167,7 @@ describe('computeAllSourceMetrics', () => {
     expect(result.find((m) => m.source_id === 'other')!.total_pages).toBe(1);
   });
 
-  test('v0.41.30: embed-backfill active/queued counts per source (CLI BACKFILL column)', async () => {
+  test('v0.41.31: embed-backfill active/queued counts per source (CLI BACKFILL column)', async () => {
     // 2 queued + 1 active embed-backfill for default; a non-backfill 'sync'
     // job must NOT inflate the backfill counts (only the generic queue_depth).
     await engine.executeRaw(

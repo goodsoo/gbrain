@@ -4923,7 +4923,7 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 108,
     name: 'pages_embedding_signature',
-    // v0.41.30 — embedding provenance for real stale semantics.
+    // v0.41.31 — embedding provenance for real stale semantics.
     //
     // Adds `pages.embedding_signature TEXT NULL` = `<provider:model>:<dims>`
     // stamped when a page's chunks are embedded (setPageEmbeddingSignature).

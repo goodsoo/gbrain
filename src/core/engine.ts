@@ -965,7 +965,7 @@ export interface BrainEngine {
    * the embedding backlog via estimateCostFromChars. Returns 0 on an
    * empty/fully-embedded brain.
    *
-   * v0.41.30: `signature` (optional) widens "stale" to ALSO include chunks
+   * v0.41.31: `signature` (optional) widens "stale" to ALSO include chunks
    * whose page `embedding_signature` is set AND differs from the current
    * model signature (a model/dims swap). NULL signature is GRANDFATHERED
    * (never counted) so the post-migration corpus isn't flagged en masse.

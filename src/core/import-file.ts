@@ -658,7 +658,7 @@ export async function importFromContent(
 
     if (chunks.length > 0) {
       await tx.upsertChunks(slug, chunks, txOpts);
-      // v0.41.30: stamp embedding provenance when this import actually
+      // v0.41.31: stamp embedding provenance when this import actually
       // embedded (not --no-embed), so a later model/dims swap is detectable
       // as stale via embed --stale. The deferred/backfill + per-slug embed
       // paths stamp too; this covers the inline import/sync path.
@@ -975,7 +975,7 @@ export async function importCodeFile(
 
     if (chunks.length > 0) {
       await tx.upsertChunks(slug, chunks, txOpts);
-      // v0.41.30: stamp embedding provenance ONLY when every chunk was
+      // v0.41.31: stamp embedding provenance ONLY when every chunk was
       // freshly embedded with the current model this call (no reuse-by-hash
       // carrying old-model vectors). Mixed pages stay unstamped rather than
       // falsely marked current; `reindex --code --force` / `embed --stale`

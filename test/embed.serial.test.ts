@@ -32,7 +32,7 @@ mock.module('../src/core/embedding.ts', () => ({
       activeEmbedCalls--;
     }
   },
-  // v0.41.30: embedAll/embedAllStale read the current embedding signature to
+  // v0.41.31: embedAll/embedAllStale read the current embedding signature to
   // stamp provenance. The mock returns a stable value; the mock engine's
   // setPageEmbeddingSignature / invalidateStaleSignatureEmbeddings resolve to
   // null via the Proxy default, so the signature value is inert here.
@@ -110,7 +110,7 @@ describe('runEmbed --all (parallel)', () => {
     expect(maxConcurrentEmbedCalls).toBeLessThanOrEqual(10);
   });
 
-  test('v0.41.30: stamps embedding_signature after embedding each page (--all)', async () => {
+  test('v0.41.31: stamps embedding_signature after embedding each page (--all)', async () => {
     const pages = [{ slug: 'a', source_id: 'default' }, { slug: 'b', source_id: 'default' }];
     const chunksBySlug = new Map(
       pages.map(p => [

@@ -1,5 +1,5 @@
 /**
- * v0.41.30 (F1) — importFromContent stamps pages.embedding_signature when it
+ * v0.41.31 (F1) — importFromContent stamps pages.embedding_signature when it
  * embeds inline.
  *
  * The inline import/sync path (importFromContent) writes embeddings without

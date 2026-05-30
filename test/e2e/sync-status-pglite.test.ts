@@ -197,7 +197,7 @@ describe('buildSyncStatusReport against real PGLite (IRON RULE regression for Bl
     expect(b.embedding_coverage_pct).toBe(100);
   });
 
-  test('v0.41.30: embed-backfill job state surfaced per source (TODO-2)', async () => {
+  test('v0.41.31: embed-backfill job state surfaced per source (TODO-2)', async () => {
     // Seed embed-backfill minion jobs for source-a: 2 queued + 1 active +
     // 1 completed. source-b has none → idle.
     await engine.executeRaw(

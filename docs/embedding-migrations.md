@@ -10,12 +10,12 @@ change automatically.
 this mismatch and refuse to silently proceed. This doc is the recipe
 they point at.
 
-## Same-dimension model swaps (v0.41.30.0 — automatic)
+## Same-dimension model swaps (v0.41.31.0 — automatic)
 
 If you switch to a different model at the **same** dimension count
 (e.g. one 1536-dim provider to another, or a re-tuned model that keeps
 its width), the column type doesn't change, so no `ALTER`/wipe recipe
-is needed. As of v0.41.30.0, gbrain stamps an embedding-provenance
+is needed. As of v0.41.31.0, gbrain stamps an embedding-provenance
 signature (`<provider:model>:<dims>`) onto each page when its chunks are
 embedded. After you point the config at the new model, the stored
 signatures differ from the current one, and `gbrain embed --stale`
@@ -29,9 +29,9 @@ gbrain embed --stale --dry-run # preview the count without re-embedding
 
 Under federated_v2, the same drift is picked up by the per-source
 `embed-backfill` jobs that `gbrain sync --all` enqueues (capped
-`$X/source/24h`). **Grandfather:** pages embedded before v0.41.30.0
+`$X/source/24h`). **Grandfather:** pages embedded before v0.41.31.0
 carry a NULL signature and are NEVER flagged stale, so upgrading to
-v0.41.30.0 does NOT trigger a whole-corpus re-embed. Signatures only
+v0.41.31.0 does NOT trigger a whole-corpus re-embed. Signatures only
 get stamped going forward.
 
 A **dimension** change still requires the wipe-and-reinit (PGLite) or

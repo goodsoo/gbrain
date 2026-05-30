@@ -1,5 +1,5 @@
 /**
- * v0.41.30 — `gbrain sync --all` cost-gate wiring regressions (PGLite).
+ * v0.41.31 — `gbrain sync --all` cost-gate wiring regressions (PGLite).
  *
  * Pure shouldBlockSync / willEmbedSynchronously logic is pinned in
  * test/sync-cost-preview.test.ts. THIS file pins the end-to-end wiring in
@@ -93,7 +93,7 @@ async function runSyncCaptured(args: string[]): Promise<{ exitCode: number | und
   return { exitCode, stdout: out.join('\n') };
 }
 
-describe('v0.41.30 — sync --all cost gate wiring', () => {
+describe('v0.41.31 — sync --all cost gate wiring', () => {
   test('R-1: deferred sync --all (non-TTY) emits deferred_notice and never exit 2', async () => {
     await runSources(engine, ['add', 'vault', '--path', repoPath, '--no-federated']);
     // Make the fan-out a clean no-op: last_commit == HEAD so performSync

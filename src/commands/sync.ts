@@ -124,7 +124,7 @@ function estimateSourceTreeTokens(
 }
 
 /**
- * v0.41.30 — INLINE-path new-content estimate. Per source, contribute ZERO
+ * v0.41.31 — INLINE-path new-content estimate. Per source, contribute ZERO
  * when the source is provably unchanged since its last sync (HEAD ==
  * last_commit AND clean working tree AND chunker_version matches CURRENT) —
  * `content_hash` short-circuits every file so nothing re-embeds. Otherwise
@@ -2291,7 +2291,7 @@ See also:
   // source (no checkout) has nothing for `sync` to pull. Sources with
   // syncEnabled=false in config.jsonb are skipped too.
   if (syncAll) {
-    // v0.41.30: SELECT carries last_commit + chunker_version so the inline
+    // v0.41.31: SELECT carries last_commit + chunker_version so the inline
     // cost preview's "unchanged source → 0" short-circuit can mirror sync's
     // own "do work?" gate (sync.ts:1057+1075) + doctor's sync_freshness.
     // Both columns predate v0.41 (writeSyncAnchor / writeChunkerVersion); no
@@ -2304,12 +2304,12 @@ See also:
       return;
     }
 
-    // v0.41.30 — mode-aware cost gate. Resolve federated_v2 ONCE here so both
+    // v0.41.31 — mode-aware cost gate. Resolve federated_v2 ONCE here so both
     // the gate (below) and the fan-out (further down) share it.
     const { isFederatedV2Enabled } = await import('../core/feature-flags.ts');
     const v2Enabled = await isFederatedV2Enabled(engine);
 
-    // v0.41.30 cost gate (supersedes the v0.20.0 unconditional gate). Under
+    // v0.41.31 cost gate (supersedes the v0.20.0 unconditional gate). Under
     // federated_v2 sync DEFERS embedding to per-source embed-backfill jobs
     // that carry their own $X/source/24h spend cap, so sync itself spends
     // nothing synchronously — the gate is INFORMATIONAL (never exit 2) on
@@ -2323,7 +2323,7 @@ See also:
       // hiccup never blocks the sync.
       let staleChars = 0;
       try {
-        // v0.41.30: signature-aware so a model/dims swap surfaces in the
+        // v0.41.31: signature-aware so a model/dims swap surfaces in the
         // backlog estimate (NULL signature grandfathered → not counted).
         staleChars = await engine.sumStaleChunkChars({ signature: currentEmbeddingSignature() });
       } catch {
@@ -2338,7 +2338,7 @@ See also:
         // Deferred path: print an FYI, NEVER exit 2. The backfill cap is the
         // real money gate (D1/D4).
         const capUsd = await resolveBackfillCapUsd(engine);
-        // v0.41.30 (TODO-2): surface already-queued backfill jobs so a cron
+        // v0.41.31 (TODO-2): surface already-queued backfill jobs so a cron
         // operator sees work is enqueued, not lost. Best-effort — minion_jobs
         // may not exist on a brain that never ran a worker.
         let queuedBackfills = 0;
@@ -2449,7 +2449,7 @@ See also:
     //   - withSourcePrefix wrap inside runOne so slog/serr lines from
     //     performSync get the [<source-id>] prefix under parallel mode (D6)
     //   - stable JSON envelope {schema_version:1, sources, ...} when --json
-    // v0.41.30: v2Enabled resolved once above (cost gate). Reused here.
+    // v0.41.31: v2Enabled resolved once above (cost gate). Reused here.
     const activeSources = sources.filter((s) => {
       const cfg = (s.config || {}) as { syncEnabled?: boolean };
       return cfg.syncEnabled !== false;
@@ -2937,7 +2937,7 @@ export interface SyncStatusReportSource {
   chunks_total: number;
   chunks_unembedded: number;
   embedding_coverage_pct: number;
-  // v0.41.30: embed-backfill job visibility (federated_v2 defers embedding
+  // v0.41.31: embed-backfill job visibility (federated_v2 defers embedding
   // to these jobs; without this an operator can't see queued/lagging work
   // after `sync --all` exits 0). Best-effort — all 0 / null on brains
   // without the minion_jobs table.
@@ -3045,7 +3045,7 @@ export async function buildSyncStatusReport(
     });
   }
 
-  // v0.41.30: per-source embed-backfill job state. Best-effort — the
+  // v0.41.31: per-source embed-backfill job state. Best-effort — the
   // minion_jobs table doesn't exist on every brain (a brain that never ran
   // a worker has the pre-minions schema), and the dashboard must not crash
   // for that. A failure → empty map → all sources report 0/null.
