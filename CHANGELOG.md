@@ -2,6 +2,84 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## [0.41.36.0] - 2026-05-30
+
+**Your MCP clients can now see and use your agent's skills. Point Codex desktop,
+Claude Code, Claude Cowork, or Perplexity at your `gbrain serve` and they can
+list every skill your brain knows, read one, and follow it — using the same
+search/query/store tools the server already gives them. No copy-paste, no
+re-explaining your workflows to each new tool.**
+
+Until now, a skill (the fat-markdown files that teach an agent how to do things:
+brain ops, ingestion, enrichment, your custom workflows) only worked inside the
+one agent that had them on disk. A thin MCP client connecting to your brain saw
+the data tools but had no idea your skills existed. This release publishes them.
+
+Two new tools show up on your MCP server:
+
+- **`list_skills`** — a flat catalog of every skill: name, what it does, the
+  phrasings that should trigger it, and which tools it needs. Each entry also
+  says which of those tools *you* can actually call (given this server and your
+  access), so the catalog never points you at something that'll fail. It opens
+  with a short "here's what these are and how to use them" note, because a skill
+  is instructions to follow, not a program to run.
+- **`get_skill <name>`** — the full prose of one skill, plus a sanitized header
+  and a reminder of the tools you can call. You read it, then do what it says by
+  calling the brain tools this server exposes.
+
+### How to turn it on
+
+New installs are on by default. Existing installs stay off until you say yes —
+upgrading never silently hands your already-issued tokens a new capability. On
+`gbrain upgrade` you'll get a one-time prompt that shows the exact skills folder
+being published and states plainly that the contents of those SKILL.md files
+become readable by the remote MCP clients you've authorized. Say yes (strongly
+recommended — it makes your MCP server dramatically more useful) and it's on.
+Flip it anytime:
+
+    gbrain config set mcp.publish_skills true     # or false to stop publishing
+
+If autodetect picks the wrong folder under a daemon or container, pin it:
+
+    gbrain config set mcp.skills_dir /path/to/your/skills
+
+### What's safe to know about
+
+This reads SKILL.md files off the serving machine and returns their text over
+the network, so it's gated carefully: off-by-default for existing installs,
+explicit owner opt-in, prose only (no source code), a size cap so a stray giant
+file can't choke the server, and strict path confinement so a request can only
+ever reach a real skill inside your skills folder. Private frontmatter fields
+(your brain's filing taxonomy, any absolute paths a skill declares) are stripped
+before anything goes out. A hosted brain with no agent repo on disk returns a
+clear "no skills here" instead of accidentally serving gbrain's own bundled
+dev skills. Locally, `gbrain skills` and `gbrain skill <name>` always work
+regardless of the publish setting — the owner on the box owns the box.
+
+Downloadable, installable skillpacks (tarball any skill or the whole set and
+pull it into your own setup) are the next step and ship separately.
+
+## To take advantage of v0.41.36.0
+
+`gbrain upgrade` handles this. On upgrade you'll be asked once whether to publish
+your skills to MCP clients — say yes to let Codex/Perplexity/Cowork discover them.
+
+1. **Confirm or flip the setting:**
+   ```bash
+   gbrain config set mcp.publish_skills true
+   ```
+2. **Check what's published** (works locally regardless of the gate):
+   ```bash
+   gbrain skills            # the catalog your MCP clients will see
+   gbrain skill brain-ops   # one skill's full instructions
+   ```
+3. **If the catalog is empty or wrong under a daemon/container,** pin the folder:
+   ```bash
+   gbrain config set mcp.skills_dir /path/to/your/skills
+   ```
+4. **If anything looks off,** file an issue at
+   https://github.com/garrytan/gbrain/issues with the output of `gbrain skills`.
+
 ## [0.41.31.0] - 2026-05-30
 
 **Your nightly `gbrain sync --all` cron stops getting blocked. It used to
