@@ -2,6 +2,94 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## [0.42.2.0] - 2026-05-30
+
+**One command now wires Claude Code to a remote gbrain when all you have is a
+bearer token. `gbrain connect <url> --token <tok>` prints a paste-ready block,
+or `--install` runs it for you and checks the token actually works before you
+walk away.**
+
+If your brain runs somewhere as an HTTP server (`gbrain serve --http`) and you
+have a token, connecting an agent used to mean remembering the exact
+`claude mcp add ... -H "Authorization: Bearer ..."` incantation, getting the
+`/mcp` path right, and hoping the token was valid. Now you run one command.
+It normalizes the URL (adds `/mcp`, rejects a bare host so you don't silently
+point at the wrong thing), and the block it prints tells the agent to call
+`get_brain_identity` and `list_skills` so it immediately knows whose brain this
+is and everything it can do. No local brain, no proxy, no OAuth dance: Claude
+Code talks straight to your remote over HTTP.
+
+How to use it (run anywhere gbrain is installed):
+
+```
+gbrain auth create "claude-code"                          # mint a token on the host
+gbrain connect https://your-host/mcp --token gbrain_xxx   # print the paste block
+gbrain connect https://your-host --token gbrain_xxx --install   # or wire it + verify the token
+```
+
+`--install` runs `claude mcp add` for you, then makes one real call to your brain
+so a wrong or expired token fails right then instead of silently 401-ing on the
+agent's first question. `--json` gives you a machine-readable version with the
+token redacted (pass `--show-token` if you really want it inlined).
+
+A note on the token: a `gbrain auth create` token is long-lived and full-access.
+The printed block single-quotes it so pasting it can't accidentally run shell
+code, the command refuses to send it to a link-local or cloud-metadata address,
+and error output never echoes it. Keep it private, and prefer a scoped token if
+your host supports one.
+
+## To take advantage of v0.42.2.0
+
+`gbrain upgrade` is all you need. `gbrain connect` is available immediately after
+upgrade. To wire up a coding agent:
+
+1. On the brain host (or anywhere gbrain is installed), mint a token:
+   ```bash
+   gbrain auth create "claude-code"
+   ```
+2. Generate the onboarding block (or wire it directly):
+   ```bash
+   gbrain connect https://your-host/mcp --token <the-token>
+   # or, on the machine you want to connect:
+   gbrain connect https://your-host/mcp --token <the-token> --install
+   ```
+3. Paste the printed block into Claude Code. It connects the MCP server and
+   tells the agent to call `get_brain_identity` + `list_skills`.
+4. Verify: in Claude Code, ask it to `search` for something in your brain.
+
+If anything looks wrong, `gbrain connect --help` lists every flag, and
+`docs/mcp/CLAUDE_CODE.md` covers the local-stdio path too.
+
+### Itemized changes
+
+#### Added
+- **`gbrain connect <mcp-url>`** generates (or, with `--install`, runs) the
+  Claude Code MCP wiring for a remote gbrain from a bearer token. Flags:
+  `--token`, `--name`, `--agent claude-code|generic`, `--install`, `--yes`,
+  `--force`, `--json`, `--show-token`, `--timeout-ms`. Reads the token from
+  `--token` or `$GBRAIN_REMOTE_TOKEN`; in print mode the token is optional (it
+  emits a `<paste-your-token>` placeholder). Surfaced in `docs/mcp/CLAUDE_CODE.md`
+  (now leading with `gbrain connect` for the remote case, keeping the local
+  `gbrain serve` stdio path as the simplest local option) and the README.
+- **`--install` smoke-tests the token.** After registering the server it makes a
+  real `get_brain_identity` call over the bearer connection and warns loudly on
+  a 401, unreachable host, or timeout, so a bad token fails at setup instead of
+  on the agent's first request.
+
+#### Fixed
+- **`gbrain auth create <name>` no longer drops the name.** On the bare form
+  (no `--takes-holders` flag) the name was silently discarded and the command
+  printed usage instead of minting a token. It now creates the token as
+  documented.
+
+#### Security
+- The connection command single-quotes the rendered `claude mcp add` so a token
+  containing shell metacharacters can't run code when the block is pasted;
+  validates the token to keep it out of HTTP headers; refuses to send the token
+  to link-local / cloud-metadata addresses (including IPv4-mapped IPv6 forms);
+  redacts the token from all error output and from `--json` unless `--show-token`;
+  and requires `--yes` for `--install` in a non-interactive shell.
+
 ## [0.41.38.0] - 2026-05-30
 
 **Two fixes for Supabase brains with a code source. `gbrain code-callers` and
