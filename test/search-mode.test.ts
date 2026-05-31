@@ -69,6 +69,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       reranker_top_n_out: null,
       reranker_timeout_ms: 5000,
       floor_ratio: undefined,
+      title_boost: 1.25,
       ...CROSS_MODAL_DEFAULTS,
       graph_signals: false,
       ...CR_DISABLED_DEFAULT,
@@ -97,6 +98,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       reranker_top_n_out: null,
       reranker_timeout_ms: 5000,
       floor_ratio: undefined,
+      title_boost: 1.25,
       ...CROSS_MODAL_DEFAULTS,
       graph_signals: true,
       ...CR_DISABLED_DEFAULT,
@@ -123,6 +125,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       reranker_top_n_out: null,
       reranker_timeout_ms: 5000,
       floor_ratio: undefined,
+      title_boost: 1.25,
       ...CROSS_MODAL_DEFAULTS,
       graph_signals: true,
       ...CR_DISABLED_DEFAULT,
@@ -384,10 +387,11 @@ describe('knobsHash determinism + cross-mode separation (CDX-4)', () => {
     // written when the brain was on balanced (title-only) — different
     // embedding spaces. Sequenced behind salem's v=4 graph-signals work.
     // v0.41.22.0 (type-unification): bumped 5→6 for the new alias_resolved
-    // post-fusion boost stage. v0.41.34.0: bumped 6→7 for autocut (ac=/acj=).
-    // A query against a brain with slug_aliases populated must not be served
-    // from a cache row written before the boost stage existed.
-    expect(KNOBS_HASH_VERSION).toBe(7);
+    // post-fusion boost stage. T2: bumped 6→7 for title_boost. v0.41.34.0:
+    // bumped 7→8 for autocut (ac=/acj=). A query against a brain with
+    // slug_aliases populated must not be served from a cache row written
+    // before the boost stage existed.
+    expect(KNOBS_HASH_VERSION).toBe(8);
   });
 
   test('T1 (codex): floor_ratio set vs unset produces DIFFERENT hashes (cache contamination prevention)', () => {
@@ -553,7 +557,7 @@ describe('v0.40.4 — graph_signals knob', () => {
 
 describe('v0.41.34.0 — autocut knobs', () => {
   test('KNOBS_HASH_VERSION bumped to 7', () => {
-    expect(KNOBS_HASH_VERSION).toBe(7);
+    expect(KNOBS_HASH_VERSION).toBe(8);
   });
 
   test('bundle defaults: conservative off, balanced/tokenmax on @0.20', () => {

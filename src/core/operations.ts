@@ -21,6 +21,9 @@ import { isFactsBackstopEligible } from './facts/eligibility.ts';
 import { stripTakesFence } from './takes-fence.ts';
 import { stripFactsFence } from './facts-fence.ts';
 import { bumpLastRetrievedAt } from './last-retrieved.ts';
+import { isSearchMode } from './search/mode.ts';
+import { stampEvidence } from './search/evidence.ts';
+import type { SearchResult } from './types.ts';
 import { CJK_SLUG_CHARS } from './cjk.ts';
 import * as db from './db.ts';
 import { VERSION } from '../version.ts';
@@ -38,6 +41,8 @@ import {
   CODE_CALLEES_DESCRIPTION,
   CODE_DEF_DESCRIPTION,
   CODE_REFS_DESCRIPTION,
+  LIST_SKILLS_DESCRIPTION,
+  GET_SKILL_DESCRIPTION,
 } from './operations-descriptions.ts';
 
 // --- Types ---
@@ -417,6 +422,59 @@ export function sourceScopeOpts(ctx: OperationContext): { sourceId?: string; sou
   if (allowed && allowed.length > 0) return { sourceIds: allowed };
   if (ctx.sourceId) return { sourceId: ctx.sourceId };
   return {};
+}
+
+/**
+ * T4/D5 — resolve a per-call search-mode override. Honored ONLY for trusted/
+ * local callers (ctx.remote === false) so a remote OAuth client can't escalate
+ * to the costly tokenmax bundle. Local + unknown mode → loud reject; remote +
+ * mode → silently ignored (server-configured mode wins). Returns undefined to
+ * mean "use the configured mode".
+ */
+export function resolvePerCallMode(ctx: OperationContext, raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || raw.length === 0) return undefined;
+  if (ctx.remote !== false) return undefined; // remote can't select mode
+  if (!isSearchMode(raw)) {
+    throw new OperationError(
+      'invalid_params',
+      `Unknown search mode '${raw}'. Valid: conservative, balanced, tokenmax.`,
+      `gbrain search "<query>" --mode balanced`,
+    );
+  }
+  return raw;
+}
+
+/** T4 — stamp evidence/create_safety on a result set, fail-soft. */
+function stampEvidenceSafe(results: SearchResult[]): void {
+  try { stampEvidence(results); } catch { /* non-fatal */ }
+}
+
+/** T4 — shared eval-capture for the `search` op (keyword-only + cheap-hybrid paths). */
+function maybeCaptureSearch(
+  ctx: OperationContext,
+  queryText: string,
+  results: SearchResult[],
+  latency_ms: number,
+  vectorEnabled: boolean,
+  meta?: HybridSearchMeta | null,
+): void {
+  if (!isEvalCaptureEnabled(ctx.config)) return;
+  void captureEvalCandidate(
+    ctx.engine,
+    {
+      tool_name: 'search',
+      query: queryText,
+      results,
+      meta: meta ?? { vector_enabled: vectorEnabled, detail_resolved: null, expansion_applied: false },
+      latency_ms,
+      remote: ctx.remote ?? false,
+      expand_enabled: false,
+      detail: null,
+      job_id: ctx.jobId ?? null,
+      subagent_id: ctx.subagentId ?? null,
+    },
+    { scrub_pii: isEvalScrubEnabled(ctx.config) },
+  );
 }
 
 export interface Operation {
@@ -1194,48 +1252,48 @@ const search: Operation = {
     query: { type: 'string', required: true },
     limit: { type: 'number', description: 'Max results (default 20)' },
     offset: { type: 'number', description: 'Skip first N results (for pagination)' },
+    mode: { type: 'string', description: 'Search mode (conservative|balanced|tokenmax). Local callers only.' },
   },
   handler: async (ctx, p) => {
     const startedAt = Date.now();
     const queryText = p.query as string;
-    // v0.34.1 (#861 — P0 leak seal): thread caller's source scope into
-    // searchKeyword. Pre-fix this op silently returned cross-source hits
-    // for any auth'd OAuth client.
-    const raw = await ctx.engine.searchKeyword(queryText, {
-      limit: (p.limit as number) || 20,
-      offset: (p.offset as number) || 0,
-      ...sourceScopeOpts(ctx),
-    });
-    const results = dedupResults(raw);
-    const latency_ms = Date.now() - startedAt;
+    const limit = (p.limit as number) || 20;
+    const offset = (p.offset as number) || 0;
+    const scope = sourceScopeOpts(ctx);
 
-    // v0.37.0 (D11): op-layer last_retrieved_at write-back. Fire-and-forget;
-    // results already returned by engine, this just marks them as user-surfaced
-    // for LSD's stale-page signal. 5-min throttle inside bumpLastRetrievedAt.
-    bumpLastRetrievedAt(ctx.engine, results.map((r) => r.page_id));
+    // T4/D5 — per-call mode honored ONLY for trusted/local callers so a remote
+    // OAuth client can't escalate to the costly tokenmax bundle. Local + unknown
+    // mode → loud reject; remote + mode set → silently ignored (uses config).
+    const perCallMode = resolvePerCallMode(ctx, p.mode);
 
-    // Op-layer capture (v0.25.0). Fire-and-forget — no await on the
-    // capture call so MCP response latency is unaffected. search has
-    // no expand/detail/vector semantics so meta fields are fixed.
-    if (isEvalCaptureEnabled(ctx.config)) {
-      void captureEvalCandidate(
-        ctx.engine,
-        {
-          tool_name: 'search',
-          query: queryText,
-          results,
-          meta: { vector_enabled: false, detail_resolved: null, expansion_applied: false },
-          latency_ms,
-          remote: ctx.remote ?? false,
-          expand_enabled: null,
-          detail: null,
-          job_id: ctx.jobId ?? null,
-          subagent_id: ctx.subagentId ?? null,
-        },
-        { scrub_pii: isEvalScrubEnabled(ctx.config) },
-      );
+    // T4/D17 — escape hatch: keyword-only when the operator opts out of the
+    // hybrid `search` contract (privacy/cost: no query text to an embedding
+    // provider). Defaults to cheap-hybrid (D4/D15).
+    const keywordOnly = (await ctx.engine.getConfig('search.mcp_keyword_only')) === 'true';
+
+    if (keywordOnly) {
+      const raw = await ctx.engine.searchKeyword(queryText, { limit, offset, ...scope });
+      const results = dedupResults(raw);
+      stampEvidenceSafe(results);
+      bumpLastRetrievedAt(ctx.engine, results.map((r) => r.page_id));
+      maybeCaptureSearch(ctx, queryText, results, Date.now() - startedAt, false);
+      return results;
     }
 
+    // Cheap-hybrid (D4/D15): full vector+keyword+RRF+pool+title+alias, but
+    // expansion OFF (no per-call LLM cost). `query` op is the full-control variant.
+    let capturedMeta: HybridSearchMeta | null = null;
+    const results = await hybridSearchCached(ctx.engine, queryText, {
+      limit,
+      offset,
+      expansion: false,
+      ...scope,
+      ...(perCallMode ? { mode: perCallMode } : {}),
+      onMeta: (m) => { capturedMeta = m; },
+    });
+    const latency_ms = Date.now() - startedAt;
+    bumpLastRetrievedAt(ctx.engine, results.map((r) => r.page_id));
+    maybeCaptureSearch(ctx, queryText, results, latency_ms, true, capturedMeta);
     return results;
   },
   scope: 'read',
@@ -1261,6 +1319,7 @@ const query: Operation = {
     offset: { type: 'number', description: 'Skip first N results (for pagination)' },
     expand: { type: 'boolean', description: 'Enable multi-query expansion (default: true)' },
     detail: { type: 'string', description: 'Result detail level: low (compiled truth only), medium (default, all with dedup), high (all chunks)' },
+    mode: { type: 'string', description: 'Search mode (conservative|balanced|tokenmax). Local callers only; remote uses configured mode.' },
     // v0.20.0 Cathedral II Layer 10 C1/C2: language + symbol-kind filters.
     lang: { type: 'string', description: 'Filter to chunks where content_chunks.language matches (e.g., typescript, python, ruby)' },
     symbol_kind: { type: 'string', description: 'Filter to chunks where content_chunks.symbol_type matches (e.g., function, class, method, type, interface)' },
@@ -1399,6 +1458,8 @@ const query: Operation = {
       offset: (p.offset as number) || 0,
       expansion: expand,
       expandFn: expand ? expandQuery : undefined,
+      // T4/D5 — per-call mode (local/trusted only; remote ignored).
+      ...((): { mode?: string } => { const m = resolvePerCallMode(ctx, p.mode); return m ? { mode: m } : {}; })(),
       detail,
       language: (p.lang as string) || undefined,
       symbolKind: (p.symbol_kind as string) || undefined,
@@ -1929,6 +1990,58 @@ const get_brain_identity: Operation = {
   },
   scope: 'read',
   // intentionally no cliHints — banner-only op
+};
+
+// --- PR1: skill catalog over MCP (host-repo skills for thin clients) ---
+// Both ops dynamically import ./skill-catalog.ts to avoid an import cycle
+// (skill-catalog statically imports the `operations` array for D7 tool honesty).
+// Read-scope, non-localOnly: a thin client (Codex/Perplexity/Cowork) reaches
+// these over HTTP. The host-filesystem read is gated by mcp.publish_skills +
+// path confinement — see the trust-boundary memo in skill-catalog.ts.
+
+const list_skills: Operation = {
+  name: 'list_skills',
+  description: LIST_SKILLS_DESCRIPTION,
+  params: {
+    section: {
+      type: 'string',
+      description: 'Optional: only skills whose routing section matches this exactly.',
+    },
+  },
+  handler: async (ctx, p) => {
+    const sc = await import('./skill-catalog.ts');
+    const publish = await sc.readMcpPublishSkills(ctx);
+    sc.assertPublishEnabled(ctx, publish);
+    const override = await sc.readMcpSkillsDir(ctx);
+    const { dir, source } = sc.resolveSkillsDir(ctx, override);
+    const section = typeof p.section === 'string' ? p.section : undefined;
+    return sc.buildSkillCatalog(ctx, dir, source, { section });
+  },
+  scope: 'read',
+  cliHints: { name: 'skills', positional: [] },
+};
+
+const get_skill: Operation = {
+  name: 'get_skill',
+  description: GET_SKILL_DESCRIPTION,
+  params: {
+    name: {
+      type: 'string',
+      required: true,
+      description: 'Skill name exactly as returned by list_skills.',
+    },
+  },
+  handler: async (ctx, p) => {
+    const sc = await import('./skill-catalog.ts');
+    const publish = await sc.readMcpPublishSkills(ctx);
+    sc.assertPublishEnabled(ctx, publish);
+    const override = await sc.readMcpSkillsDir(ctx);
+    const { dir } = sc.resolveSkillsDir(ctx, override);
+    const name = typeof p.name === 'string' ? p.name : '';
+    return sc.getSkillDetail(ctx, dir, name);
+  },
+  scope: 'read',
+  cliHints: { name: 'skill', positional: ['name'] },
 };
 
 /**
@@ -4375,6 +4488,8 @@ export const operations: Operation[] = [
   get_stats, get_health, run_doctor, get_versions, revert_version,
   // v0.31.1 (Issue #734): thin-client banner identity packet (read-scope, banner-only)
   get_brain_identity,
+  // PR1: skill catalog over MCP — discover + fetch host-repo skills (read-scope)
+  list_skills, get_skill,
   // v0.41.19.0: thin-client `gbrain status` payload (admin-scope, sync + cycle only)
   get_status_snapshot,
   // Sync
