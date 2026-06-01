@@ -412,4 +412,64 @@ describeBoth('Engine parity — Postgres vs PGLite', () => {
     expect(pgFed).toEqual(['people/op-linker-b', 'people/op-orphan-a']);
     expect(pgliteFed).toEqual(pgFed);
   });
+
+  // v0.42.2 (#1696): stale-page extraction watermark parity. Isolated under a
+  // dedicated source so other tests' mutations don't perturb the counts.
+  test('stale-page extraction methods: Postgres ↔ PGLite parity', async () => {
+    const SRC = 'stale-parity';
+    const VER = '2026-05-31T00:00:00Z';
+    for (const eng of [pgEngine, pgliteEngine]) {
+      await eng.executeRaw(`INSERT INTO sources (id, name, config) VALUES ($1, 'Stale Parity', '{}'::jsonb) ON CONFLICT DO NOTHING`, [SRC]);
+      await eng.executeRaw(
+        `INSERT INTO pages (slug, source_id, type, title, compiled_truth, timeline, frontmatter, content_hash, created_at, updated_at)
+         SELECT 'sp/' || g, $1, 'concept', 'SP' || g, 'body ' || g, '', '{}'::jsonb, 'sph' || g, now(), now()
+           FROM generate_series(1, 3) g`,
+        [SRC],
+      );
+    }
+
+    // NULL arm: all 3 stale on both engines.
+    expect(await pgEngine.countStalePagesForExtraction({ sourceId: SRC })).toBe(3);
+    expect(await pgliteEngine.countStalePagesForExtraction({ sourceId: SRC })).toBe(3);
+
+    // listStalePagesForExtraction: same slugs + content columns populated.
+    const pgList = (await pgEngine.listStalePagesForExtraction({ batchSize: 10, sourceId: SRC })).map(r => r.slug).sort();
+    const plList = (await pgliteEngine.listStalePagesForExtraction({ batchSize: 10, sourceId: SRC })).map(r => r.slug).sort();
+    expect(pgList).toEqual(['sp/1', 'sp/2', 'sp/3']);
+    expect(plList).toEqual(pgList);
+    const pgRow = (await pgEngine.listStalePagesForExtraction({ batchSize: 1, sourceId: SRC }))[0];
+    expect(pgRow.compiled_truth).toBeTruthy();
+    expect(pgRow.updated_at).toBeInstanceOf(Date);
+
+    // markPagesExtractedBatch: stamp one → count drops to 2 on both.
+    const stampAt = new Date().toISOString();
+    await pgEngine.markPagesExtractedBatch([{ slug: 'sp/1', source_id: SRC }], stampAt);
+    await pgliteEngine.markPagesExtractedBatch([{ slug: 'sp/1', source_id: SRC }], stampAt);
+    expect(await pgEngine.countStalePagesForExtraction({ sourceId: SRC })).toBe(2);
+    expect(await pgliteEngine.countStalePagesForExtraction({ sourceId: SRC })).toBe(2);
+
+    // version arm: stamp sp/2 old + set updated_at old (isolate version arm) →
+    // flagged only when versionTs is passed. Parity on both engines.
+    for (const eng of [pgEngine, pgliteEngine]) {
+      await eng.markPagesExtractedBatch([{ slug: 'sp/2', source_id: SRC }], '2000-01-01T00:00:00Z');
+      await eng.executeRaw(`UPDATE pages SET updated_at = '2000-01-01T00:00:00Z' WHERE slug = 'sp/2' AND source_id = $1`, [SRC]);
+    }
+    // Without versionTs: sp/2 not stale (stamp == updated, not NULL). sp/3 still NULL-stale.
+    expect(await pgEngine.countStalePagesForExtraction({ sourceId: SRC })).toBe(1);
+    expect(await pgliteEngine.countStalePagesForExtraction({ sourceId: SRC })).toBe(1);
+    // With versionTs: sp/2's old stamp (< VER) re-flags it → 2 stale.
+    expect(await pgEngine.countStalePagesForExtraction({ sourceId: SRC, versionTs: VER })).toBe(2);
+    expect(await pgliteEngine.countStalePagesForExtraction({ sourceId: SRC, versionTs: VER })).toBe(2);
+
+    // edited-since arm: stamp sp/1 in the recent past, updated_at slightly after →
+    // re-flagged on both engines (updated_at > links_extracted_at).
+    for (const eng of [pgEngine, pgliteEngine]) {
+      await eng.executeRaw(
+        `UPDATE pages SET links_extracted_at = now() - interval '2 hours', updated_at = now() - interval '1 hour' WHERE slug = 'sp/1' AND source_id = $1`,
+        [SRC],
+      );
+    }
+    expect(await pgEngine.countStalePagesForExtraction({ sourceId: SRC })).toBe(2); // sp/1 (edited) + sp/3 (NULL)
+    expect(await pgliteEngine.countStalePagesForExtraction({ sourceId: SRC })).toBe(2);
+  });
 });

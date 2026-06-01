@@ -526,6 +526,26 @@ export interface StaleChunkRow {
   page_id: number;
 }
 
+/**
+ * v0.42.2 (#1696) — a page that needs link/timeline extraction, returned by
+ * `listStalePagesForExtraction`. Carries the page CONTENT (compiled_truth +
+ * timeline + frontmatter) so `gbrain extract --stale` extracts in ~1 query per
+ * batch instead of an N+1 `getPage` per page (mirrors how StaleChunkRow carries
+ * chunk_text). `id` is the keyset cursor; `updated_at` lets callers reason about
+ * the edited-since-extract staleness arm.
+ */
+export interface StalePageRow {
+  id: number;
+  slug: string;
+  source_id: string;
+  type: string;
+  title: string;
+  compiled_truth: string;
+  timeline: string;
+  frontmatter: Record<string, unknown>;
+  updated_at: Date;
+}
+
 export interface ChunkInput {
   chunk_index: number;
   chunk_text: string;

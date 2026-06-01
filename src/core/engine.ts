@@ -1,6 +1,6 @@
 import type {
   Page, PageInput, PageFilters, GetPageOpts,
-  Chunk, ChunkInput, StaleChunkRow,
+  Chunk, ChunkInput, StaleChunkRow, StalePageRow,
   SearchResult, SearchOpts,
   Link, GraphNode, GraphPath,
   TimelineEntry, TimelineInput, TimelineOpts,
@@ -1026,6 +1026,48 @@ export interface BrainEngine {
    * the wrong row count in multi-source brains.
    */
   deleteChunks(slug: string, opts?: { sourceId?: string }): Promise<void>;
+
+  // ============================================================
+  // v0.42.2 (#1696): link/timeline extraction freshness watermark.
+  // A page is stale for extraction when its links_extracted_at is NULL,
+  // older than the extractor version stamp, or older than its updated_at
+  // (edited-since-extract — the MCP put_page / sync --no-extract path).
+  // Powers `gbrain extract --stale` + the `links_extraction_lag` doctor check.
+  // ============================================================
+  /**
+   * Count pages needing (re)extraction. `versionTs` is the ISO-8601
+   * `LINK_EXTRACTOR_VERSION_TS` string (bound `::timestamptz`); when omitted,
+   * only the NULL + edited-since arms apply. Soft-deleted pages excluded.
+   */
+  countStalePagesForExtraction(opts?: { sourceId?: string; versionTs?: string }): Promise<number>;
+  /**
+   * List a keyset page (ordered by `id`, `id > afterPageId`) of stale pages
+   * WITH their content so the caller extracts without an N+1 `getPage`. Same
+   * stale predicate as countStalePagesForExtraction. Caller passes a SMALL
+   * batchSize (page bodies are unbounded — 25MB transcript pages exist) and
+   * applies its own per-batch byte budget.
+   */
+  listStalePagesForExtraction(opts: {
+    batchSize: number;
+    afterPageId?: number;
+    sourceId?: string;
+    versionTs?: string;
+  }): Promise<StalePageRow[]>;
+  /**
+   * Stamp `links_extracted_at` for a batch of pages keyed on the unique
+   * `(slug, source_id)` pair (unnest idiom, mirrors addLinksBatch).
+   * Short-circuits on empty input. Called AFTER the link/timeline flush so a
+   * crash mid-batch leaves pages unstamped and they re-extract next run.
+   *
+   * Each ref may carry its own `extractedAt`; refs that omit it use the
+   * `defaultExtractedAt` arg. `gbrain extract --stale` passes the row's READ
+   * `updated_at` per ref (v0.42.2 D4 race fix) so a concurrent edit landing
+   * between the SELECT and this stamp advances `updated_at` past the stamped
+   * value → the page stays stale → re-extracted next run, never marked
+   * fresh-with-the-old-content. Sync / DB-extract sites omit per-ref values and
+   * pass `now()` (the page was just imported, so `now() >= updated_at`).
+   */
+  markPagesExtractedBatch(refs: Array<{ slug: string; source_id: string; extractedAt?: string }>, defaultExtractedAt: string): Promise<void>;
 
   // Links
   /**

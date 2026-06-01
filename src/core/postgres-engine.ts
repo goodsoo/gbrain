@@ -34,7 +34,7 @@ import {
 } from './search/embedding-column.ts';
 import type {
   Page, PageInput, PageFilters, PageType,
-  Chunk, ChunkInput, StaleChunkRow,
+  Chunk, ChunkInput, StaleChunkRow, StalePageRow,
   SearchResult, SearchOpts,
   Link, GraphNode, GraphPath,
   TimelineEntry, TimelineInput, TimelineOpts,
@@ -53,7 +53,7 @@ import { computeAnomaliesFromBuckets } from './cycle/anomaly.ts';
 import * as db from './db.ts';
 import { ConnectionManager } from './connection-manager.ts';
 import { logConnectionEvent } from './connection-audit.ts';
-import { validateSlug, contentHash, rowToPage, rowToChunk, rowToSearchResult, parseEmbedding, tryParseEmbedding, takeRowToTake, isUndefinedTableError, warnOncePerProcess } from './utils.ts';
+import { validateSlug, contentHash, rowToPage, rowToStalePage, rowToChunk, rowToSearchResult, parseEmbedding, tryParseEmbedding, takeRowToTake, isUndefinedTableError, warnOncePerProcess } from './utils.ts';
 import { resolveBoostMap, resolveHardExcludes } from './search/source-boost.ts';
 import { buildSourceFactorCase, buildHardExcludeClause, buildVisibilityClause, buildRecencyComponentSql, buildBestPerPagePoolCte } from './search/sql-ranking.ts';
 import { DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMENSIONS } from './ai/defaults.ts';
@@ -457,7 +457,9 @@ export class PostgresEngine implements BrainEngine {
         EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_schema = current_schema() AND table_name = 'pages' AND column_name = 'generation') AS pages_generation_exists,
         EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_schema = current_schema() AND table_name = 'pages' AND column_name = 'embedding_signature') AS pages_embedding_signature_exists
+                WHERE table_schema = current_schema() AND table_name = 'pages' AND column_name = 'embedding_signature') AS pages_embedding_signature_exists,
+        EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = 'pages' AND column_name = 'links_extracted_at') AS pages_links_extracted_at_exists
     `;
     const probe = probeRows[0]!;
 
@@ -533,6 +535,7 @@ export class PostgresEngine implements BrainEngine {
       sources_trust_fm_exists?: boolean;
       pages_generation_exists?: boolean;
       pages_embedding_signature_exists?: boolean;
+      pages_links_extracted_at_exists?: boolean;
     };
     const needsContextualRetrievalColumns = (probe.pages_exists
         && (!probeCr.pages_cr_mode_exists || !probeCr.pages_corpus_generation_exists))
@@ -546,6 +549,12 @@ export class PostgresEngine implements BrainEngine {
     // v0.41.31 (v108): pages.embedding_signature for real stale semantics.
     // No SCHEMA_SQL index references it; bootstrap is defense-in-depth.
     const needsPagesEmbeddingSignature = probe.pages_exists && !probeCr.pages_embedding_signature_exists;
+    // v0.42.2 (v112): pages.links_extracted_at link-extraction freshness
+    // watermark. pages_links_extracted_at_idx in SCHEMA_SQL references it;
+    // pre-v112 brains crash without the column, so bootstrap adds it before
+    // SCHEMA_SQL replay creates the index. v112 runs later via runMigrations
+    // and is idempotent.
+    const needsPagesLinksExtractedAt = probe.pages_exists && !probeCr.pages_links_extracted_at_exists;
 
     if (!needsPagesBootstrap && !needsLinksBootstrap && !needsChunksBootstrap
         && !needsPagesDeletedAt && !needsMcpLogBootstrap && !needsSubagentProviderId
@@ -555,7 +564,8 @@ export class PostgresEngine implements BrainEngine {
         && !needsPagesLastRetrievedAt
         && !needsPagesProvenance
         && !needsContextualRetrievalColumns && !needsPagesGeneration
-        && !needsPagesEmbeddingSignature) return;
+        && !needsPagesEmbeddingSignature
+        && !needsPagesLinksExtractedAt) return;
 
     process.stderr.write('  Pre-v0.21 brain detected, applying forward-reference bootstrap\n');
 
@@ -788,6 +798,18 @@ export class PostgresEngine implements BrainEngine {
       // is idempotent.
       await conn.unsafe(`
         ALTER TABLE pages ADD COLUMN IF NOT EXISTS embedding_signature TEXT;
+      `);
+    }
+
+    if (needsPagesLinksExtractedAt) {
+      // v112 (pages_links_extracted_at): link-extraction freshness watermark.
+      // pages_links_extracted_at_idx in SCHEMA_SQL references it, so bootstrap
+      // adds the column before the blob's CREATE INDEX runs. The index itself
+      // lands via the blob (CREATE INDEX IF NOT EXISTS) and v112 (CONCURRENTLY);
+      // bootstrap only adds the column. v112 runs later via runMigrations and is
+      // idempotent.
+      await conn.unsafe(`
+        ALTER TABLE pages ADD COLUMN IF NOT EXISTS links_extracted_at TIMESTAMPTZ;
       `);
     }
   }
@@ -2333,6 +2355,74 @@ export class PostgresEngine implements BrainEngine {
     await sql`
       DELETE FROM content_chunks
       WHERE page_id = (SELECT id FROM pages WHERE slug = ${slug} AND source_id = ${sourceId})
+    `;
+  }
+
+  // ── v0.42.2 (#1696): link/timeline extraction freshness watermark ──
+
+  /** Shared stale-for-extraction predicate. Returns `{ where, params }`. */
+  private buildStalePagesWhere(opts?: { sourceId?: string; versionTs?: string }): { where: string; params: unknown[] } {
+    const conds: string[] = ['deleted_at IS NULL'];
+    const params: unknown[] = [];
+    if (opts?.versionTs) {
+      params.push(opts.versionTs);
+      conds.push(`(links_extracted_at IS NULL OR links_extracted_at < $${params.length}::timestamptz OR updated_at > links_extracted_at)`);
+    } else {
+      conds.push('(links_extracted_at IS NULL OR updated_at > links_extracted_at)');
+    }
+    if (opts?.sourceId) {
+      params.push(opts.sourceId);
+      conds.push(`source_id = $${params.length}`);
+    }
+    return { where: conds.join(' AND '), params };
+  }
+
+  async countStalePagesForExtraction(opts?: { sourceId?: string; versionTs?: string }): Promise<number> {
+    const { where, params } = this.buildStalePagesWhere(opts);
+    const rows = await this.sql.unsafe(
+      `SELECT count(*)::int AS count FROM pages WHERE ${where}`,
+      params as Parameters<typeof this.sql.unsafe>[1],
+    );
+    return Number((rows[0] as { count?: number } | undefined)?.count ?? 0);
+  }
+
+  async listStalePagesForExtraction(opts: {
+    batchSize: number;
+    afterPageId?: number;
+    sourceId?: string;
+    versionTs?: string;
+  }): Promise<StalePageRow[]> {
+    const { where, params } = this.buildStalePagesWhere(opts);
+    let afterClause = '';
+    if (opts.afterPageId != null) {
+      params.push(opts.afterPageId);
+      afterClause = ` AND id > $${params.length}`;
+    }
+    params.push(opts.batchSize);
+    const limitIdx = params.length;
+    const rows = await this.sql.unsafe(
+      `SELECT id, slug, source_id, type, title, compiled_truth, timeline, frontmatter, updated_at
+         FROM pages
+         WHERE ${where}${afterClause}
+         ORDER BY id
+         LIMIT $${limitIdx}`,
+      params as Parameters<typeof this.sql.unsafe>[1],
+    );
+    return (rows as Record<string, unknown>[]).map(rowToStalePage);
+  }
+
+  async markPagesExtractedBatch(refs: Array<{ slug: string; source_id: string; extractedAt?: string }>, defaultExtractedAt: string): Promise<void> {
+    if (refs.length === 0) return;
+    const slugs = refs.map(r => r.slug);
+    const srcs = refs.map(r => r.source_id);
+    // Per-ref timestamp (D4 race fix): extract --stale passes each row's read
+    // updated_at; sites that omit it fall back to defaultExtractedAt.
+    const tss = refs.map(r => r.extractedAt ?? defaultExtractedAt);
+    const sql = this.sql;
+    await sql`
+      UPDATE pages p SET links_extracted_at = v.ts::timestamptz
+      FROM unnest(${slugs}::text[], ${srcs}::text[], ${tss}::text[]) AS v(slug, source_id, ts)
+      WHERE p.slug = v.slug AND p.source_id = v.source_id
     `;
   }
 
