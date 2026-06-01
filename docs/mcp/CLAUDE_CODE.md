@@ -1,5 +1,10 @@
 # Connect GBrain to Claude Code
 
+> New to this? The [Give your coding agent a memory](../tutorials/connect-coding-agent.md)
+> tutorial walks both paths (local-from-nothing and connect-to-an-existing-brain)
+> end to end, plus the brain-first protocol that makes it worth it. This page is
+> the connection reference.
+
 ## Option 1: Local (recommended, zero server needed)
 
 ```bash
@@ -70,6 +75,13 @@ search for [any topic in your brain]
 ```
 
 You should see results from your GBrain knowledge base.
+
+> **`list_skills` returns nothing?** Skill discovery is gated by `mcp.publish_skills`
+> on the host. New brains from `gbrain init` default it ON; brains upgraded from an
+> older release stay OFF until you opt in. Enable it on the host with
+> `gbrain config set mcp.publish_skills true`. The core tools (search, query,
+> get_page, put_page, think, find_experts) work regardless. Note: `capture` is a
+> CLI-only command, not an MCP tool — the agent writes over MCP with `put_page`.
 
 ## Remove
 

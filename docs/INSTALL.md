@@ -54,6 +54,15 @@ gbrain sync --watch               # live-sync a git repo (autopilot mode)
 gbrain autopilot --install        # background daemon for nightly enrichment
 ```
 
+**Wire this same local brain into your coding agent** — zero server, zero token:
+
+```bash
+claude mcp add gbrain -- gbrain serve    # Claude Code
+codex  mcp add gbrain -- gbrain serve    # Codex
+```
+
+The agent spawns `gbrain serve` as a stdio subprocess against your local brain. Full walkthrough (both this local path and connecting to a remote brain), plus the brain-first protocol to paste into `CLAUDE.md` / `AGENTS.md`: **[Give your coding agent a memory](tutorials/connect-coding-agent.md)**.
+
 ## 3. MCP server (any MCP client)
 
 ```bash
