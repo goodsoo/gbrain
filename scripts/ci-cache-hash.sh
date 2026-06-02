@@ -129,15 +129,21 @@ INCLUDED=$(printf '%s\n' "$LS_FILES" | grep -vE "$DENY_RE" || true)
 # anchor on the `\t<path>` boundary in `git ls-files -s` output, matching
 # the deny-list convention above. Re-admitted lines that don't exist yet
 # (pre-relocation) simply match nothing.
+# Path predicates only (no leading tab here) — the `\t` boundary is added
+# via printf below so it is a REAL tab byte, not the two-char string `\t`.
+# GNU grep (CI/Ubuntu) does not interpret `\t` in an ERE as a tab the way
+# BSD grep (macOS) does, so an inline `\t` matches nothing on CI and the
+# re-admit silently no-ops. Mirror the DENY_RE construction exactly.
 ALLOW_PATTERNS=(
-  '\tdocs/TESTING\.md$'
-  '\tdocs/RELEASING\.md$'
+  'docs/TESTING\.md$'
+  'docs/RELEASING\.md$'
 )
 ALLOW_ALT=""
 for p in "${ALLOW_PATTERNS[@]}"; do
   if [ -z "$ALLOW_ALT" ]; then ALLOW_ALT="$p"; else ALLOW_ALT="$ALLOW_ALT|$p"; fi
 done
-READMIT=$(printf '%s\n' "$LS_FILES" | grep -E "($ALLOW_ALT)" || true)
+ALLOW_RE=$(printf '\t(%s)' "$ALLOW_ALT")
+READMIT=$(printf '%s\n' "$LS_FILES" | grep -E "$ALLOW_RE" || true)
 if [ -n "$READMIT" ]; then
   INCLUDED=$(printf '%s\n%s\n' "$INCLUDED" "$READMIT" | grep -v '^$' | LC_ALL=C sort -u)
 fi
