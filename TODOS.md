@@ -1,5 +1,105 @@
 # TODOS
 
+## v0.42.12.0 #1685 brain-health-as-solved follow-ups (v0.42+)
+
+Deferred from the v0.42.12.0 wave (issue #1685, the posture umbrella over #1678/#1735).
+The shipped checks (`worker_oom_loop`, `pool_reap_health`, cause-ranked `top_issues`,
+per-source auto-drain) cover the diagnosis + self-heal demands; this is the one
+explicitly-deferred demand.
+
+- [ ] **P3 — GAP E: secondary-error cause-ref tagging.** #1685 demand 3 asks that
+  downstream cascade errors (CONNECTION_ENDED, lock-renewal-failed, No database
+  connection) be tagged `secondary=true cause_ref=<root-incident-id>` so they can't
+  masquerade as the root cause in logs. v0.42.12.0 deferred this: the now-self-
+  identifying RSS watchdog exit (from #1735) plus the cause-ranked `doctor` header
+  (this wave, GAP C) already remove most of the symptom-masquerades-as-cause problem
+  at the doctor surface. The remaining gap is the raw worker LOG stream during a live
+  incident (not the doctor summary). Doing it right needs an incident-id correlator
+  threaded through the supervisor + DB-error paths — a bigger change than the doctor-
+  surface fixes this wave shipped. Pick up if live-log triage during an incident is
+  still painful after operators have the cause-ranked doctor.
+- [ ] **P3 — `worker_oom_loop` remote/thin-client path.** The bare-worker half of the
+  OOM signal reads `minion_jobs` directly (Postgres-only, local). The HTTP MCP
+  thin-client doctor path (`doctorReportRemote`) doesn't surface it. Same brain-wide-
+  vs-source-scoping caveat noted inline at autopilot.ts (the `--source` remote scoping
+  is a separate TODO, mirroring orphan_ratio). Wire once the thin-client doctor grows
+  a supervisor/queue surface.
+
+## v0.42.15.0 isTTY-output follow-ups (v0.42+)
+
+Filed from the v0.42.15.0 wave (#1784, decouple primary output from
+`process.stdout.isTTY`). Both are the same axis-conflation class the wave fixed
+but were deliberately scoped OUT — neither is a #1784 regression.
+
+- [ ] **P2 — `sync.ts:2491` emits a JSON cost-refusal even without `--json`.** The
+  `gbrain sync --all` cost gate has the byte-identical pattern that
+  `reindex-code.ts:457` had before #1784: non-TTY or `--json` → JSON envelope +
+  exit 2, conflating "refuse to spend" with "machine-readable output." The
+  refusal should be human text unless `--json` is explicit. Out of scope for
+  #1784 because the sync cost-gate is documented as intentional in CLAUDE.md and
+  deserves its own deliberate change. Fix: mirror the extracted
+  `buildCostRefusal({json, ...})` helper (`reindex-code.ts`). The guardrail
+  (exit 2, no spend) stays; only the FORMAT splits on `--json`.
+- [ ] **P3 — `gbrain jobs --help` has no subcommand list.** jobs.ts dispatches
+  on a bare subcommand string with no HELP const, so `watch` (and every other
+  jobs subcommand) is undocumented in `--help`. The new `watch` `--json` /
+  `--follow` flags are documented only in the file JSDoc. Add a HELP table to the
+  `jobs` command listing every subcommand + its flags.
+
+## v0.42.12.0 self-upgrade follow-ups (v0.43+)
+
+Filed from the self-upgrading-gbrain wave. All deliberately scoped OUT (D7a/D7b
++ eng-review notes); none is a v0.42.12.0 regression. Plan + reviews at
+`~/.claude/plans/system-instruction-you-are-working-nifty-badger.md`.
+
+- [ ] **P2 — Signature/checksum verification before applying an auto-upgrade
+  (D7a).** Auto-upgrade currently trusts TLS + GitHub, same as `gbrain upgrade`.
+  This is the prerequisite for ever making `auto` a default instead of opt-in:
+  verify a release-asset checksum/signature before `atomicReplace`. Until it
+  lands, `self_upgrade.mode` stays opt-in everywhere. Touches
+  `src/core/binary-self-update.ts` (stage step) + the release workflow (publish
+  the signature/checksum alongside the asset).
+- [ ] **P2 — `gbrain serve` host graceful request-drain on auto-upgrade (D7b).**
+  The silent channel currently skips while any request/stream/job/tx is in
+  flight and retries next window. A true drain (stop accepting new, finish
+  in-flight, swap, relaunch) is cleaner for a busy multi-tenant serve host.
+- [ ] **P3 — Windows `binary` self-update.** Can't rename over a running `.exe`;
+  no Windows release asset is published. Currently degrades to notify-only via
+  `resolvePlatformAsset` returning null. Revisit if a Windows binary ships.
+- [ ] **P3 — True binary rollback.** Today a bad release is caught by the
+  post-swap `gbrain doctor` gate + recorded in `self_upgrade.failed_versions`
+  (never retried) + a loud nudge. There is no automatic revert to the prior
+  binary. A keep-N-prior-binaries rollback is a possible follow-up.
+
+## v0.42.9.0 SkillOpt eval-readiness follow-ups (v0.42+)
+
+Deferred from the v0.42.9.0 wave (held-out gate wiring + ENFORCE + ablation opts).
+Adversarial-review findings that are real but not blockers — the shipped fixes are
+complete and tested; these are hardening/cleanup.
+
+- [ ] **P2 — Extract `promoteCandidate` helper (DRY).** The candidate-promotion
+  sequence (optional `runHeldOutGate` → branch on `mutateDecision.mutate` →
+  `acceptCandidate` else `writeProposed` → set outcome/finalText) is duplicated between
+  the one-shot-rewrite block and the main loop accept branch in
+  `src/core/skillopt/orchestrator.ts`. A future change to the held-out gate or promotion
+  policy must be applied in two places. Extract a shared `promoteCandidate({...})`. Deferred
+  this wave to avoid a >20-line refactor of freshly-tested accept-path code.
+- [ ] **P2 — Harden bundled-skill detection.** `getBundledSkillContext`
+  (`src/core/skillopt/bundled-skill-gate.ts`) only sets `isBundled` when the skills dir was
+  resolved via the `install_path` tier. If the same bundled `skills/` is found via
+  `cwd_walk_up` / `repo_root` / `$GBRAIN_SKILLS_DIR`, `isBundled=false` and the D16 ENFORCE
+  never fires (same weakness governs `--allow-mutate-bundled` itself — pre-existing, not a
+  v0.42.9.0 regression). Fix: compare realpaths against the canonical bundled skills dir
+  independent of detection source.
+- [ ] **P3 — Preflight cost estimate is blind to ablation opts.** `preflight.ts:estimateCost`
+  doesn't know `optimizerMode`/`disableValidationGate`/`reflectMode`, so `--dry-run`
+  over-counts for `one-shot-rewrite` / `failure-only`. Low impact (eval-internal knobs;
+  runtime BudgetTracker enforcement is correct, no overspend) — just a lying preview.
+- [ ] **P3 — `maxRuntimeMin` is enforced only between optimization steps.** The baseline
+  eval, per-step held-out gate, one-shot rewrite, and final-test `scoreSkillOnTasks` calls
+  run unbounded LLM rollouts with no deadline check. BudgetTracker still caps spend; the
+  runtime guarantee is best-effort. Thread the deadline + abortSignal into those phases, or
+  document runtime as best-effort.
 ## v0.42.7.0 extract-in-default-loop follow-ups (v0.42+)
 
 Filed from the v0.42.2.0 wave (#1696 link/timeline extraction freshness
@@ -3952,3 +4052,27 @@ Start at `probeChatModel` in `src/core/ai/gateway.ts` and the explicit gate in
 
 **Depends on:** a config-independent provider-general key probe (new gateway
 helper) so the `isAvailable` unconfigured-gateway false-reject footgun is avoided.
+
+## v0.42.14.0 follow-ups (#1780)
+
+### Unify the init live-test-embed with the models-doctor reachability probe
+**Priority:** P3
+
+**What:** `src/core/init-embed-check.ts:liveTestEmbed` and
+`src/commands/models.ts:probeEmbeddingReachability` both do the same thing —
+a 1-token `gateway.embed(['probe'], {inputType:'query', abortSignal})` with a 5s
+timeout + error classification. They were left as two small implementations
+because `probeEmbeddingReachability` is private and returns the doctor-shaped
+`ProbeResult`, while the init path wants `{ok, reason, message}`.
+
+**Why:** rule-of-three is met (init check + models doctor + the classifyError
+duplication). One shared embed-probe core would prevent the two from drifting
+on timeout/classification behavior.
+
+**How to start:** extract the embed + AbortController-timeout + error-classify
+core into a shared helper (e.g. `src/core/ai/embed-probe.ts`), have both
+`liveTestEmbed` and `probeEmbeddingReachability` adapt its result to their
+respective shapes. Small, mechanical; pinned by `test/init-embed-check.test.ts`
++ the models-doctor tests.
+
+**Depends on:** nothing.

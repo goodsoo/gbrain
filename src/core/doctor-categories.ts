@@ -82,6 +82,7 @@ export const BRAIN_CHECK_NAMES: ReadonlySet<string> = new Set([
   'grade_confidence_drift',
   'graph_coverage',
   'graph_signals_coverage',
+  'hidden_by_search_policy',
   'image_assets',
   'integrity',
   'jsonb_integrity',
@@ -142,11 +143,14 @@ export const OPS_CHECK_NAMES: ReadonlySet<string> = new Set([
   'rls',
   'rls_event_trigger',
   'search_mode',
+  'pool_reap_health',
+  'self_upgrade_health',
   'stale_locks',
   'subagent_capability',
   'subagent_health',
   'supervisor',
   'sync_consolidation',
+  'worker_oom_loop',
   'ze_embedding_health',
 ]);
 
