@@ -2019,12 +2019,29 @@ const get_brain_identity: Operation = {
   params: {},
   handler: async (ctx) => {
     const stats = await ctx.engine.getStats();
+    // v0.42 self-upgrade: surface a pending update on the thin-client banner
+    // (bonus channel; the CLI stderr marker + `gbrain self-upgrade` are the
+    // load-bearing surface). Cache-read-only, no network, fail-open.
+    let update_available = false;
+    let latest_version: string | null = null;
+    try {
+      const su = await import('./self-upgrade.ts');
+      const entry = su.readUpdateCache();
+      if (entry && su.isCacheFresh(entry, Date.now()) && entry.marker.kind === 'upgrade_available') {
+        update_available = true;
+        latest_version = entry.marker.latest ?? null;
+      }
+    } catch {
+      /* never let the banner break the op */
+    }
     return {
       version: VERSION,
       engine: ctx.engine.kind,
       page_count: stats.page_count,
       chunk_count: stats.chunk_count,
       last_sync_iso: null as string | null,
+      update_available,
+      latest_version,
     };
   },
   scope: 'read',
@@ -3734,7 +3751,11 @@ const code_callers: Operation = {
       allSources,
       sourceId,
     });
-    return { symbol, count: edges.length, callers: edges };
+    const { resolveCodeReadiness } = await import('./code-graph-readiness.ts');
+    const readiness = await resolveCodeReadiness(ctx.engine, {
+      kind: 'edge', count: edges.length, sourceId, allSources,
+    });
+    return { symbol, count: edges.length, status: readiness.status, ready: readiness.ready, callers: edges };
   },
   cliHints: { name: 'code_callers', hidden: true },
 };
@@ -3765,7 +3786,11 @@ const code_callees: Operation = {
       allSources,
       sourceId,
     });
-    return { symbol, count: edges.length, callees: edges };
+    const { resolveCodeReadiness } = await import('./code-graph-readiness.ts');
+    const readiness = await resolveCodeReadiness(ctx.engine, {
+      kind: 'edge', count: edges.length, sourceId, allSources,
+    });
+    return { symbol, count: edges.length, status: readiness.status, ready: readiness.ready, callees: edges };
   },
   cliHints: { name: 'code_callees', hidden: true },
 };
@@ -3785,7 +3810,10 @@ const code_def: Operation = {
       limit: (p.limit as number) ?? 20,
       language: (p.lang as string) || undefined,
     });
-    return { symbol: p.symbol as string, count: defs.length, defs };
+    // code_def is brain-wide (not source-scoped); readiness is 'symbol' grain.
+    const { resolveCodeReadiness } = await import('./code-graph-readiness.ts');
+    const readiness = await resolveCodeReadiness(ctx.engine, { kind: 'symbol', count: defs.length });
+    return { symbol: p.symbol as string, count: defs.length, status: readiness.status, ready: readiness.ready, defs };
   },
   cliHints: { name: 'code_def', hidden: true },
 };
@@ -3805,7 +3833,10 @@ const code_refs: Operation = {
       limit: (p.limit as number) ?? 50,
       language: (p.lang as string) || undefined,
     });
-    return { symbol: p.symbol as string, count: refs.length, refs };
+    // code_refs is brain-wide (not source-scoped); readiness is 'symbol' grain.
+    const { resolveCodeReadiness } = await import('./code-graph-readiness.ts');
+    const readiness = await resolveCodeReadiness(ctx.engine, { kind: 'symbol', count: refs.length });
+    return { symbol: p.symbol as string, count: refs.length, status: readiness.status, ready: readiness.ready, refs };
   },
   cliHints: { name: 'code_refs', hidden: true },
 };

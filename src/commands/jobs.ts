@@ -1211,14 +1211,17 @@ HANDLER TYPES (built in)
     }
 
     case 'watch': {
-      // v0.41 D2 — live TTY dashboard (or JSON snapshots on non-TTY).
+      // v0.41 D2 — live dashboard; v0.42.11.0 (#1784) decoupled output from TTY.
+      // Flags: --json (FORMAT, human default), --follow (LOOP, default=isTTY so
+      // non-TTY one-shots), --refresh-ms=N. Non-TTY no-flag → one human snapshot.
       try { await queue.ensureSchema(); }
       catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1); }
       const { runWatch } = await import('./jobs-watch.ts');
       const refreshArg = args.find(a => a.startsWith('--refresh-ms='));
       const refreshMs = refreshArg ? parseInt(refreshArg.split('=')[1] ?? '1000', 10) : 1000;
       const json = hasFlag(args, '--json');
-      await runWatch(engine, { refreshMs, json });
+      const follow = hasFlag(args, '--follow') ? true : undefined; // undefined → default to isTTY
+      await runWatch(engine, { refreshMs, json, follow });
       break;
     }
 
@@ -1282,10 +1285,29 @@ export async function registerBuiltinHandlers(worker: MinionWorker, engine: Brai
     // standalone handler dropped it. Callers that want inline extract can
     // pass { noExtract: false } in job params explicitly.
     const noExtract = job.data.noExtract !== false;
-    const result = await performSync(engine, {
-      repoPath, sourceId, noPull, noEmbed, noExtract,
-      concurrency: concurrencyOverride,
-    });
+    let result;
+    try {
+      result = await performSync(engine, {
+        repoPath, sourceId, noPull, noEmbed, noExtract,
+        concurrency: concurrencyOverride,
+      });
+    } catch (err) {
+      // v0.42.x (#1794, Part B): single-flight backpressure. A concurrent
+      // sync (manual run, sibling autopilot tick) holds the per-source lock.
+      // SKIP cleanly — mark the job done, NOT failed — so the holder finishes
+      // without this tick polluting the failed-jobs count + supervisor crash
+      // metrics. The next scheduled tick resumes against the (by then
+      // advanced) anchor.
+      const { SyncLockBusyError } = await import('./sync.ts');
+      if (err instanceof SyncLockBusyError) {
+        console.error(
+          `[sync] skipped: sync already in progress for ${sourceId ?? 'default'} ` +
+          `(lock ${err.lockKey} held).`,
+        );
+        return { skipped: true, reason: 'sync_in_progress', source_id: sourceId ?? 'default' };
+      }
+      throw err;
+    }
 
     // v0.40 D22: auto_embed_backfill defaults TRUE when sourceId is set AND
     // the feature flag is enabled. Submits a child embed-backfill job
@@ -1732,6 +1754,36 @@ export async function registerBuiltinHandlers(worker: MinionWorker, engine: Brai
   worker.register('extract_facts', makePhaseHandler('extract_facts'));
   worker.register('resolve_symbol_edges', makePhaseHandler('resolve_symbol_edges'));
   worker.register('recompute_emotional_weight', makePhaseHandler('recompute_emotional_weight'));
+
+  // v0.42.x (#1685 GAP D) — PROTECTED bounded extract_atoms backlog drain.
+  // Thin wrapper over the shared helper (DECISION 5A) so the CLI `--drain`
+  // path, this handler, and autopilot's auto-drain can't diverge on lock id /
+  // window / defer behavior. On LockUnavailableError (the routine cycle holds
+  // the per-source lock) the job completes `{ deferred: true }` and retries
+  // next tick instead of failing — cooperative interleave (CODEX accepted).
+  worker.register('extract-atoms-drain', async (job) => {
+    const { runExtractAtomsDrainForSource } = await import('../core/cycle/extract-atoms-drain.ts');
+    const { LockUnavailableError } = await import('../core/db-lock.ts');
+    const sourceId = typeof job.data.sourceId === 'string' ? job.data.sourceId : undefined;
+    const windowSeconds =
+      typeof job.data.window === 'number' && job.data.window > 0 ? job.data.window : 120;
+    const repoPath =
+      typeof job.data.repoPath === 'string'
+        ? job.data.repoPath
+        : ((await engine.getConfig('sync.repo_path')) ?? undefined);
+    try {
+      return await runExtractAtomsDrainForSource(engine, {
+        sourceId,
+        windowSeconds,
+        brainDir: repoPath,
+      });
+    } catch (e) {
+      if (e instanceof LockUnavailableError) {
+        return { phase: 'extract_atoms', status: 'skipped', deferred: true, reason: 'cycle_already_running' };
+      }
+      throw e;
+    }
+  });
 
   // v0.40 Federated Sync v2 — embed-backfill: per-source decoupled embed.
   // Cost-bounded via D6 ($10/job BudgetTracker) + D19 (source-level cooldown
