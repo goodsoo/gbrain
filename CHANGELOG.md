@@ -49,6 +49,72 @@ Earlier partial fixes addressed symptoms: v0.41.27.0's retry-with-reconnect resc
 ### For contributors
 
 This is the canonical landing for a long-standing class with ~15 competing community PRs and zero merged. Thanks to **@nullhex-io** (#1651) and **@joelwp** (#1667) — the ownership-flag approach that shipped, and to **@BrendanGahan**, **@xaviroblessarries**, and the other #1471 reporters for the precise root-cause walkthroughs. Three follow-ups are filed in `TODOS.md` (connection-lifecycle hardening under concurrent module connects, facts-queue drain on the dream/fall-through paths, stale ConnectionManager refresh after reconnect) — all pre-existing and not reachable in current gbrain.
+## [0.42.18.0] - 2026-06-03
+
+**A scheduled `gbrain sync` can no longer spin forever and pile up dead processes, and `gbrain doctor` stops showing "100% of pages need link extraction" right after you ran the thing that's supposed to fix it.**
+
+Two unrelated bugs, both reported from real Postgres/Supabase brains, both fixed here.
+
+The first one is the scary one. A `gbrain sync --source <id>` fired from cron could get stuck in a busy loop, peg a CPU core, and ignore `Ctrl-C` and `kill` (only `kill -9` stopped it). When the cron parent exited, the stuck sync was left orphaned, and the next cron tick spawned another. One reporter woke up to 13 of them, 24+ hours old, thrashing a 16 GB Mac mini down to 121 MB free. The root cause: when a sync spins on synchronous work, it starves its own event loop, so the SIGTERM handler and `--timeout` that gbrain already had could never actually run.
+
+The fix is a watchdog that runs on a separate OS thread and kills the process from outside the starved loop. On a non-interactive run (cron), gbrain now arms a hard deadline by default (1 hour), sends SIGTERM at the deadline for a clean exit, and SIGKILL shortly after if the process is too wedged to respond. A runaway sync now dies on its own instead of piling up. Sync is resumable, so a deadline-hit run just picks up next tick.
+
+- **Default on for cron, off for you at the keyboard.** Interactive (TTY) syncs stay unbounded. Tune the cron deadline with `GBRAIN_SYNC_MAX_RUNTIME_SECONDS=N`, set a one-off with `gbrain sync --hard-deadline 600`, or opt out with `--no-hard-deadline`. `gbrain sync --source x --timeout 300` now also arms the hard backstop automatically.
+- **`Ctrl-C` is clean now too.** Hitting Ctrl-C during a long sync returns a partial result and releases the lock through the normal path, instead of a hard cut that could leave the sync lock stuck until its TTL expired.
+- **The spin itself isn't root-caused yet** (it needs a live reproduction; the leading suspect is a pathological regex in a schema pack's link rules, already partly mitigated). The watchdog makes the *symptom* impossible. A `[sync-watchdog]` heartbeat line in your logs, plus the existing `[gbrain phase]` lines, will pinpoint where the next one hangs.
+
+The second fix: on Postgres, `gbrain doctor`'s `links_extraction_lag` check was permanently stuck at 100%. You'd run `gbrain extract --stale`, it would stamp every page as extracted, and the check would still say every page needs extraction. The stamp was being truncated to millisecond precision while the database kept microseconds, so "last extracted" always looked a hair older than "last updated." Now the stamp carries full microsecond precision and the check clears the moment extraction runs. (Postgres-only; the health score stops being dragged down by a check that could never pass.)
+
+## To take advantage of v0.42.18.0
+
+`gbrain upgrade` is all that's required — both fixes are automatic. Two things worth knowing:
+
+1. **Scheduled (non-interactive) syncs now have a 1-hour hard deadline by default.** If you run a legitimately long sync from cron (e.g. a first import of a very large brain), raise it: `GBRAIN_SYNC_MAX_RUNTIME_SECONDS=14400 gbrain sync ...` (4h), pass `gbrain sync --hard-deadline <seconds>`, or opt out with `--no-hard-deadline`. Interactive runs at your keyboard are unbounded as before.
+2. **Verify the link-extraction fix (Postgres):** `gbrain extract --stale` then `gbrain doctor` — the `links_extraction_lag` check should now read near 0% and stay there on a re-run (it was stuck at 100%).
+
+### For contributors
+- New reusable primitive `src/core/process-watchdog.ts` (Bun worker-thread self-kill, `eval:true` so it survives `bun --compile`); `resolveSyncHardDeadline` + `composeAbortSignals` in `sync.ts`; watchdog armed in `cli.ts` before `connectEngine` (bounds connect-phase hangs). #1768 fix threads a full-µs `updated_at_iso` (projected via `to_char(... AT TIME ZONE 'UTC', '…US"Z"')`) into `StalePageRow`; the `markPagesExtractedBatch` SQL is unchanged so the version-arm / CDX-1 tests stay green. New tests: `test/process-watchdog.test.ts` (+ `.serial`), `test/sync-hard-deadline.test.ts`, and a deterministic µs regression in `test/extract-stale.test.ts`. Eng review + Codex outside-voice both cleared the plan (Codex empirically validated the worker-self-kill on Bun 1.3.13).
+## [0.42.17.0] - 2026-06-03
+
+**A huge `gbrain sync` can no longer get stuck forever losing all its progress when it's killed partway through.** If your brain suddenly grows by tens of thousands of pages (say a background process is enriching one page per commit, all night long), the next sync has a giant backlog to import. If that sync gets killed before it finishes — a session timeout, a laptop sleep, anything — it used to throw away **everything** it had done and start over from zero. The next hour the backlog was even bigger, so it got killed again, and again. It could never catch up. This release makes sync **resumable**: a killed sync banks what it imported, and the next run picks up where it left off. It converges.
+
+Two related things were quietly making it worse, both fixed here:
+
+- **Sync used to give up the moment a new commit landed during the run.** If something else was committing to the same repo while sync worked (exactly the "enriching all night" case), sync saw the moving target and aborted with "blocked." Now sync locks onto a fixed target snapshot, drains to it, and lets the new commits land in the next run. Normal forward progress no longer blocks anything.
+- **A big sync would hammer your database connection pool.** On a small pooler (Supabase's 20-client default) a single sync could exhaust the slots and starve its own retries. New opt-in `GBRAIN_MAX_CONNECTIONS` caps a sync's footprint, and `gbrain doctor` nudges you to lower `GBRAIN_POOL_SIZE` when the math doesn't fit.
+
+You don't have to do anything — `gbrain sync` is resumable by default. Two knobs if you want them:
+
+```
+# How often progress is banked (files between checkpoint flushes; default 1000)
+export GBRAIN_SYNC_CHECKPOINT_EVERY=1000
+
+# Cap a single sync's DB connections on a low-cap pooler (opt-in; off by default)
+export GBRAIN_MAX_CONNECTIONS=16
+```
+
+What you'd see on a 44,000-file backlog, killed at 16% three times:
+
+| | Before | After |
+|---|---|---|
+| Progress kept after a kill | 0% (full re-walk) | banked up to the last checkpoint |
+| New commits during the sync | blocks the whole run | ignored this run, picked up next run |
+| Does it ever finish? | no — backlog outran every attempt | yes — each run banks real progress |
+
+Things to know about: the sync bookmark (`last_commit`) still only advances when the import fully completes, so a killed sync correctly looks "stale" and gets retried. For large syncs, link/timeline/embedding extraction is deferred to the resumable `gbrain extract --stale` / `gbrain embed --stale` sweeps (and the autopilot cycle) instead of running inline — that keeps a 44K-page extraction pass from re-blocking the import. Small syncs are unchanged: they still extract and embed inline.
+
+### Itemized changes
+
+- **Resumable incremental sync (`src/commands/sync.ts`).** `performSyncInner` now drives the import loop against a **pinned target commit** held in a DB checkpoint (`op_checkpoints`, two rows keyed by `syncFingerprint(sourceId, lastCommit)`). Each batch of imported files is flushed to the checkpoint; a killed/aborted/blocked run banks the completed set and leaves `last_commit` unchanged. The next run resume-filters the diff against the banked set and continues. `last_commit` (and `last_sync_at`) advance only at full import completion, then both checkpoint rows clear.
+- **Pinned target eliminates the staleness window.** The checkpoint pins the target commit at the first run and drains `lastCommit..pin`; completion advances to the pin (not live HEAD), so commits landing after the pin are a clean next-sync diff and never get skipped. A history rewrite (pin no longer an ancestor of HEAD) discards the checkpoint and re-pins.
+- **Forward-progress head gate.** The pre-existing strict "HEAD == captured" head-drift gate (which blocked on any concurrent commit) is replaced by a pin-reachability check: forward progress is safe; only a real rewrite blocks.
+- **`commitTimeMs(localPath, sha)`** added to `src/core/source-health.ts` — stamps `newest_content_at` against the pinned commit.
+- **`syncFingerprint({ sourceId, lastCommit })`** added to `src/core/op-checkpoint.ts` — keyed on the anchor (never HEAD) so the checkpoint survives a growing backlog.
+- **Connection-budget clamp (`src/core/sync-concurrency.ts`).** New `resolveMaxConnections()` + `clampWorkersForConnectionBudget()`; opt-in via `GBRAIN_MAX_CONNECTIONS`, no-op when unset (existing brains unchanged). `gbrain doctor` gains a `pool_budget` check that warns when the parent pool leaves no room for a worker.
+- **Vanished-on-disk added files are skipped, not failed.** A file added in the diff but deleted from disk by a commit after the pin (normal forward delete) is skipped and checkpointed instead of blocking the run.
+- **Cleaner single-flight backpressure.** `performSync` throws a typed `SyncLockBusyError`; the Minion `sync` handler catches it and marks the job *skipped* (not failed), so a cron/autopilot tick that hits a held lock defers to the holder without polluting the failed-job/crash metrics.
+- **Tests.** `test/sync-resumable-import.serial.test.ts` (13 cases): convergence regression, resume-skips-checkpointed, pinned-target/forward-drift, history-rewrite re-pin, `last_sync_at` not bumped on a blocked run + good-file banking, vanished-file skip, dry-run/empty-diff, plus pure-helper coverage for the fingerprint, clamp, and pool-budget math.
+
 ## [0.42.16.0] - 2026-06-02
 
 **`gbrain doctor` now tells you the brain is OOM-looping in one line, ranks every

@@ -1172,10 +1172,29 @@ export async function registerBuiltinHandlers(worker: MinionWorker, engine: Brai
     // standalone handler dropped it. Callers that want inline extract can
     // pass { noExtract: false } in job params explicitly.
     const noExtract = job.data.noExtract !== false;
-    const result = await performSync(engine, {
-      repoPath, sourceId, noPull, noEmbed, noExtract,
-      concurrency: concurrencyOverride,
-    });
+    let result;
+    try {
+      result = await performSync(engine, {
+        repoPath, sourceId, noPull, noEmbed, noExtract,
+        concurrency: concurrencyOverride,
+      });
+    } catch (err) {
+      // v0.42.x (#1794, Part B): single-flight backpressure. A concurrent
+      // sync (manual run, sibling autopilot tick) holds the per-source lock.
+      // SKIP cleanly — mark the job done, NOT failed — so the holder finishes
+      // without this tick polluting the failed-jobs count + supervisor crash
+      // metrics. The next scheduled tick resumes against the (by then
+      // advanced) anchor.
+      const { SyncLockBusyError } = await import('./sync.ts');
+      if (err instanceof SyncLockBusyError) {
+        console.error(
+          `[sync] skipped: sync already in progress for ${sourceId ?? 'default'} ` +
+          `(lock ${err.lockKey} held).`,
+        );
+        return { skipped: true, reason: 'sync_in_progress', source_id: sourceId ?? 'default' };
+      }
+      throw err;
+    }
 
     // v0.40 D22: auto_embed_backfill defaults TRUE when sourceId is set AND
     // the feature flag is enabled. Submits a child embed-backfill job

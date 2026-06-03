@@ -691,6 +691,9 @@ export async function doctorReportRemote(engine: BrainEngine): Promise<DoctorRep
   // v0.41.19.0 (Issue 5): sync --all consolidation nudge for multi-source brains.
   checks.push(await checkSyncConsolidation(engine));
 
+  // v0.42.x (#1794, 4A): pool-budget nudge when GBRAIN_MAX_CONNECTIONS is set.
+  checks.push(await checkPoolBudget(engine));
+
   // v0.42.7 (#1696): link-extraction lag. Strictly SQL (single indexed COUNT),
   // safe on the thin-client/remote path — remote operators on checkout-less
   // Postgres brains are exactly who can't otherwise see the extraction backlog.
@@ -3440,6 +3443,65 @@ export async function checkSyncConsolidation(engine: BrainEngine): Promise<Check
       name: 'sync_consolidation',
       status: 'warn',
       message: `Could not check sync consolidation: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * v0.42.x (#1794, 4A) — pure pool-budget check. When `GBRAIN_MAX_CONNECTIONS`
+ * is set (the operator opted into the single-source connection clamp), verify
+ * the parent pool leaves room for at least one parallel worker. If even the
+ * parent pool alone is at/over the budget, sync clamps to serial AND every
+ * other gbrain process competes for the same cap — the operator should lower
+ * `GBRAIN_POOL_SIZE`. Pure so it's unit-testable without env/engine.
+ */
+export function computePoolBudgetCheck(
+  maxConnections: number | undefined,
+  parentPool: number,
+  perWorkerPool: number,
+): Check {
+  if (maxConnections === undefined) {
+    return {
+      name: 'pool_budget',
+      status: 'ok',
+      message: 'GBRAIN_MAX_CONNECTIONS not set — connection budget clamp disabled (default behavior).',
+    };
+  }
+  if (parentPool + perWorkerPool > maxConnections) {
+    return {
+      name: 'pool_budget',
+      status: 'warn',
+      message:
+        `GBRAIN_MAX_CONNECTIONS=${maxConnections} leaves no room for a parallel sync worker ` +
+        `(parent pool ${parentPool} + ${perWorkerPool} per-worker > ${maxConnections}). ` +
+        `Sync will run serial. If you hit EMAXCONNSESSION, lower the parent pool: ` +
+        '`gbrain config` / set GBRAIN_POOL_SIZE=2 (recommended for low-cap poolers like Supabase Supavisor).',
+    };
+  }
+  const maxWorkers = Math.floor((maxConnections - parentPool) / perWorkerPool);
+  return {
+    name: 'pool_budget',
+    status: 'ok',
+    message:
+      `GBRAIN_MAX_CONNECTIONS=${maxConnections}: room for up to ${maxWorkers} parallel sync ` +
+      `worker(s) (parent pool ${parentPool} + ${perWorkerPool} per-worker).`,
+  };
+}
+
+/** Thin env/engine wrapper over `computePoolBudgetCheck`. */
+export async function checkPoolBudget(_engine: BrainEngine): Promise<Check> {
+  try {
+    const { resolveMaxConnections } = await import('../core/sync-concurrency.ts');
+    const { resolvePoolSize } = await import('../core/db.ts');
+    const maxConnections = resolveMaxConnections();
+    const parentPool = resolvePoolSize();
+    const perWorkerPool = Math.min(2, resolvePoolSize(2));
+    return computePoolBudgetCheck(maxConnections, parentPool, perWorkerPool);
+  } catch (err) {
+    return {
+      name: 'pool_budget',
+      status: 'ok',
+      message: `Skipped (${err instanceof Error ? err.message : String(err)})`,
     };
   }
 }

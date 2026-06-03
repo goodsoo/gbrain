@@ -137,6 +137,7 @@ export const OPS_CHECK_NAMES: ReadonlySet<string> = new Set([
   'orphan_clones',
   'pgbouncer_prepare',
   'pgvector',
+  'pool_budget',
   'progressive_batch_audit_health',
   'queue_health',
   'reranker_health',
