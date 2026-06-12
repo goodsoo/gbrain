@@ -1589,6 +1589,11 @@ export async function runCycle(
     // and which slugs synthesize wrote so recompute_emotional_weight can
     // pick up the union of (sync ∪ synthesize) for v0.29 incremental mode.
     let syncPagesAffected: string[] | undefined;
+    // #1928 (codex): true ONLY when the sync phase actually RAN its work (not
+    // when it was skipped for no-engine / no-brainDir). The destructive
+    // extract_facts guard keys off this so a SKIPPED sync still allows a
+    // legitimate full reconcile — only a sync that ran and failed suppresses it.
+    let syncAttempted = false;
     let synthesizeWrittenSlugs: string[] | undefined;
     if (phases.includes('sync')) {
       checkAborted(opts.signal);
@@ -1604,6 +1609,7 @@ export async function runCycle(
         phaseResults.push(skipNoBrainDir('sync'));
       } else {
         progress.start('cycle.sync');
+        syncAttempted = true; // sync ran its work; undefined pagesAffected now means failure
         const { result, duration_ms } = await timePhase(() => runPhaseSync(engine, brainDir, dryRun, pull, phases.includes('extract')));
         result.duration_ms = duration_ms;
         // Capture changed slugs for incremental extract.
@@ -1709,9 +1715,13 @@ export async function runCycle(
         // failed, syncPagesAffected is undefined (a successful no-op sync
         // returns []). In that case pass [] (no-op) so a lock-contention or
         // transient sync failure can't escalate into a brain-wide fact wipe.
-        // undefined still reaches here (intended full reconcile) only when the
-        // sync phase was not part of this cycle at all.
-        const syncRanButFailed = phases.includes('sync') && syncPagesAffected === undefined;
+        // undefined still reaches here (intended full reconcile) when the sync
+        // phase was absent OR skipped (no engine / no brainDir — extract_facts
+        // supports no-brainDir DB reconciliation). Only a sync that actually
+        // RAN and came back with undefined pagesAffected is a real failure
+        // (#1928, codex: keying off phases.includes('sync') wrongly suppressed
+        // the skipped-sync full reconcile).
+        const syncRanButFailed = syncAttempted && syncPagesAffected === undefined;
         const xfSlugs = syncRanButFailed ? [] : syncPagesAffected;
         const { result, duration_ms } = await timePhase(() =>
           runPhaseExtractFacts(engine, brainDir, xfSourceId, dryRun, xfSlugs, opts.signal));

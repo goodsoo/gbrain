@@ -88,11 +88,14 @@ export async function repairTimelineDedupIndex(engine: BrainEngine): Promise<Tim
     return { repaired: false, before: status.columns, collapsedDuplicates: 0, reason: 'already_correct' };
   }
 
+  // Keep the lowest `id` per 4-tuple group — deterministic and consistent with
+  // the existing v-migration dedup rule (`a.id > b.id`), unlike `ctid` which is
+  // a physical tuple location that can preserve an arbitrary duplicate.
   const del = await engine.executeRaw<{ n: string }>(
     `WITH d AS (
        DELETE FROM timeline_entries t
        USING (
-         SELECT page_id, date, summary, source, MIN(ctid) AS keep
+         SELECT page_id, date, summary, source, MIN(id) AS keep
            FROM timeline_entries
           GROUP BY page_id, date, summary, source
          HAVING COUNT(*) > 1
@@ -101,7 +104,7 @@ export async function repairTimelineDedupIndex(engine: BrainEngine): Promise<Tim
          AND t.date = dup.date
          AND t.summary = dup.summary
          AND t.source IS NOT DISTINCT FROM dup.source
-         AND t.ctid <> dup.keep
+         AND t.id <> dup.keep
        RETURNING 1
      )
      SELECT COUNT(*)::text AS n FROM d`,

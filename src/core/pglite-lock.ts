@@ -46,18 +46,39 @@ export interface LockHandle {
    */
   heartbeat?: ReturnType<typeof setInterval>;
   lockPath?: string;
+  /**
+   * #2058 (codex): our ownership token (`<pid>:<acquired_at>`). If we stall
+   * past the steal grace, another process can reap + re-acquire. When we
+   * resume, the heartbeat and release MUST verify the on-disk lock is STILL
+   * ours before touching it — otherwise a resumed stale holder would refresh
+   * or delete the NEW owner's live lock, re-opening the concurrent-writer hole.
+   */
+  ownerToken?: string;
+}
+
+/** The on-disk lock identity, used to detect "we were reaped and replaced". */
+function tokenOf(lockData: { pid?: unknown; acquired_at?: unknown }): string {
+  return `${lockData.pid}:${lockData.acquired_at}`;
 }
 
 /**
  * #2058: keep the held lock's `refreshed_at` current so a concurrent acquirer
  * can tell a live, working holder from a hung/dead one. Best-effort: if the
- * file is gone (we're being reaped) the write simply fails and the next tick
- * retries. `.unref()` so the timer never keeps the process alive on its own.
+ * file is gone (we're being reaped) the write simply fails. `.unref()` so the
+ * timer never keeps the process alive on its own. Ownership-checked: if the
+ * on-disk lock is no longer ours (we were reaped past grace and replaced), stop
+ * the heartbeat instead of clobbering the new owner's lock.
  */
-function startHeartbeat(lockPath: string): ReturnType<typeof setInterval> {
+function startHeartbeat(lockPath: string, ownerToken: string): ReturnType<typeof setInterval> {
   const timer = setInterval(() => {
     try {
       const raw = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      if (tokenOf(raw) !== ownerToken) {
+        // We were reaped and someone else owns it now — do NOT refresh their
+        // lock. Stand down.
+        clearInterval(timer);
+        return;
+      }
       raw.refreshed_at = Date.now();
       writeFileSync(lockPath, JSON.stringify(raw), { mode: 0o644 });
     } catch { /* best-effort — file removed or transient FS error */ }
@@ -155,7 +176,8 @@ export async function acquireLock(dataDir: string | undefined, opts?: { timeoutM
         command: process.argv.slice(1).join(' '),
       }), { mode: 0o644 });
 
-      return { lockDir, acquired: true, lockPath, heartbeat: startHeartbeat(lockPath) };
+      const ownerToken = tokenOf({ pid: process.pid, acquired_at: now });
+      return { lockDir, acquired: true, lockPath, ownerToken, heartbeat: startHeartbeat(lockPath, ownerToken) };
     } catch (e: unknown) {
       // mkdir failed — someone else grabbed it between our check and mkdir
       // This is fine, we'll retry
@@ -195,6 +217,17 @@ export async function releaseLock(lock: LockHandle): Promise<void> {
     lock.heartbeat = undefined;
   }
   if (!lock.lockDir || !lock.acquired) return;
+
+  // #2058 (codex): only remove the lock if it is STILL ours. If we were reaped
+  // past the grace and another process re-acquired, removing its live lock
+  // would let a third process in alongside it — the corruption this fix exists
+  // to prevent. Unreadable/absent lock falls through to a best-effort remove.
+  if (lock.ownerToken) {
+    try {
+      const raw = JSON.parse(readFileSync(join(lock.lockDir, LOCK_FILE), 'utf-8'));
+      if (tokenOf(raw) !== lock.ownerToken) return; // someone else owns it now
+    } catch { /* unreadable/gone — fall through to best-effort cleanup */ }
+  }
 
   try {
     rmSync(lock.lockDir, { recursive: true, force: true });

@@ -157,6 +157,32 @@ describe('pglite-lock #2058 heartbeat + steal-grace', () => {
     }
   });
 
+  test('[REGRESSION] releaseLock does NOT remove a lock that was stolen + re-acquired by another process', async () => {
+    // We acquire, then simulate a steal: another process reaped us past grace
+    // and now owns the lock (different pid + acquired_at). Our releaseLock must
+    // NOT delete their live lock — doing so would let a third process in
+    // alongside the new owner (the #2058 corruption class).
+    const lock: LockHandle = await acquireLock(TEST_DIR);
+    expect(lock.acquired).toBe(true);
+    expect(lock.ownerToken).toBeDefined();
+    if (lock.heartbeat) clearInterval(lock.heartbeat); // stop our heartbeat for a deterministic test
+
+    // Overwrite the lock file as if process B re-acquired it.
+    const lockFile = join(TEST_DIR, '.gbrain-lock', 'lock');
+    const bNow = Date.now() + 1;
+    writeFileSync(lockFile, JSON.stringify({ pid: 999999, acquired_at: bNow, refreshed_at: bNow, command: 'process B' }));
+
+    await releaseLock(lock); // our (stale) handle
+
+    // B's lock survives — we did not clobber it.
+    expect(existsSync(join(TEST_DIR, '.gbrain-lock'))).toBe(true);
+    const after = JSON.parse(readFileSync(lockFile, 'utf-8'));
+    expect(after.pid).toBe(999999);
+
+    // Cleanup for afterEach.
+    rmSync(join(TEST_DIR, '.gbrain-lock'), { recursive: true, force: true });
+  });
+
   test('acquire starts a heartbeat and seeds refreshed_at; release clears it', async () => {
     const lock: LockHandle = await acquireLock(TEST_DIR);
     expect(lock.acquired).toBe(true);
