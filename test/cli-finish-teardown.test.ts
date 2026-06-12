@@ -452,6 +452,26 @@ describe('flushThenExit', () => {
     }
   });
 
+  test('GBRAIN_FLUSH_GRACE_MS env override is honored (batch/incident knob)', async () => {
+    const prevCode = process.exitCode;
+    try {
+      await withEnv({ GBRAIN_FLUSH_GRACE_MS: '0' }, async () => {
+        const exits: number[] = [];
+        flushThenExit(0, {
+          exit: (c) => void exits.push(c),
+          stdout: fakeStream(),
+          stderr: fakeStream(),
+          guardMs: 2000,
+          // no graceMs → resolves through the env override (fakes are non-TTY)
+        });
+        await sleep(60);
+        expect(exits).toEqual([0]); // grace 0: exit right after the fence
+      });
+    } finally {
+      process.exitCode = prevCode;
+    }
+  });
+
   test('once-latch: guard + late callbacks cannot double-exit', async () => {
     const prevCode = process.exitCode;
     try {

@@ -54,13 +54,25 @@
 
 import { drainAllBackgroundWorkForCliExit, backgroundWorkSinkCount } from './background-work.ts';
 import { POOL_END_TIMEOUT_SECONDS } from './db.ts';
+import { parseGlobalFlags } from './cli-options.ts';
 
 const DAEMON_COMMANDS: ReadonlySet<string> = new Set(['serve']);
 
 export function shouldForceExitAfterMain(
   argv: string[] = process.argv.slice(2),
 ): boolean {
-  const command = argv.find((arg) => !arg.startsWith('-'));
+  // Resolve the command the same way main() does — parseGlobalFlags strips
+  // global flags INCLUDING space-separated values (`--timeout 30s`), so the
+  // command here always matches the dispatched one. The old first-non-dash
+  // heuristic saw `30s` as the command for `gbrain --timeout 30s serve` and
+  // (post-#2084, where this gates an unconditional process.exit) would have
+  // killed the daemon ~250ms after boot. Cross-model adversarial finding.
+  let command: string | undefined;
+  try {
+    command = parseGlobalFlags(argv).rest[0];
+  } catch {
+    command = argv.find((arg) => !arg.startsWith('-'));
+  }
   if (!command) return true;
   return !DAEMON_COMMANDS.has(command);
 }
@@ -85,6 +97,20 @@ const FLUSH_GUARD_MS = 2_000;
  * — no grace needed there.
  */
 const FLUSH_GRACE_PIPE_MS = 250;
+
+/**
+ * Resolve the non-TTY aliveness grace: `GBRAIN_FLUSH_GRACE_MS` env override
+ * (incident/batch escape hatch, same env-only pattern as
+ * GBRAIN_TEARDOWN_DEADLINE_MS) over the 250ms default. Consumers piping LARGE
+ * payloads into slow readers (a reader that attaches later than the grace
+ * loses the tail — Bun gives no delivery signal to wait on) can raise it;
+ * high-frequency agent loops capturing to files can lower it.
+ */
+function resolveFlushGraceMs(): number {
+  const env = Number(process.env.GBRAIN_FLUSH_GRACE_MS);
+  if (Number.isFinite(env) && env >= 0) return env;
+  return FLUSH_GRACE_PIPE_MS;
+}
 /** Default per-sink drain budget (matches drainAllBackgroundWorkForCliExit). */
 const DEFAULT_DRAIN_TIMEOUT_MS = 2_000;
 
@@ -182,7 +208,16 @@ export interface FlushThenExitOpts {
  * `process.exitCode` is set up front so that even a stubbed `exit` (tests) or
  * a natural event-loop exit keeps the right code.
  */
+/** Process-level guard: the REAL process.exit fires at most once even if both
+ * the backstop and the central seam reach flushThenExit (test-injected exit
+ * fns are exempt so unit tests stay independent). */
+let realExitInitiated = false;
+
 export function flushThenExit(code: number, opts: FlushThenExitOpts = {}): void {
+  if (!opts.exit) {
+    if (realExitInitiated) return;
+    realExitInitiated = true;
+  }
   const exit = opts.exit ?? ((c: number) => process.exit(c));
   const streams: MinimalWritable[] = [
     opts.stdout ?? process.stdout,
@@ -190,7 +225,7 @@ export function flushThenExit(code: number, opts: FlushThenExitOpts = {}): void 
   ];
   const guardMs = opts.guardMs ?? FLUSH_GUARD_MS;
   const bothTty = streams.every((s) => (s as { isTTY?: boolean }).isTTY === true);
-  const graceMs = opts.graceMs ?? (bothTty ? 0 : FLUSH_GRACE_PIPE_MS);
+  const graceMs = opts.graceMs ?? (bothTty ? 0 : resolveFlushGraceMs());
   process.exitCode = code;
   let fenced = false;
   let guard: ReturnType<typeof setTimeout> | undefined;
@@ -265,9 +300,11 @@ export async function finishCliTeardown(opts: FinishCliTeardownOpts): Promise<vo
     // process.exitCode; a bare exit(0) would mask the failure.
     flushThenExit(currentExitCode(), opts);
   }, deadlineMs);
-  // unref so the backstop itself never keeps the event loop alive — only real
-  // pending work does.
-  backstop.unref?.();
+  // Deliberately REF'D (adversarial F3): if teardown hangs while nothing else
+  // keeps Bun's loop alive, an unref'd timer would let the process exit
+  // NATURALLY — skipping the flush and exiting with whatever PGLite scribbled
+  // into process.exitCode. The ref'd timer costs nothing on the clean path
+  // (cleared in the finally as soon as teardown returns).
 
   try {
     try {

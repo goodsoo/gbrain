@@ -222,6 +222,20 @@ GSTACK REVIEW REPORT at
   no bare `await engine.disconnect()` remains in cli.ts
   (`test/fix-wave-structural.test.ts` `#2084` describe).
 
+- [ ] **P2 — command-module `process.exit` sites bypass the #2084 teardown
+  contract.** Several CLI_ONLY command modules exit directly on their normal
+  paths (`doctor.ts` ~10 sites incl. its verdict exit, `dream.ts` ~23,
+  `ze-switch.ts` ~9, plus friction/claw-test/eval verdict exits in cli.ts) —
+  those exits preempt the call-site `finally`, so the background-work drain,
+  bounded disconnect, and `flushThenExit` grace are all skipped on those paths
+  (pre-existing class, NOT introduced by #2084; pre-fix the same exits skipped
+  the inline drains too). Consequences: `gbrain doctor --json | <slow reader>`
+  keeps the #1959 truncation exposure; a dream path that exits mid-cycle
+  discards in-flight facts/search-cache writes. Fix shape: convert in-command
+  `process.exit(n)` to `setCliExitVerdict(n)` + return (the central seam
+  exits), or route them through a shared `exitCommand(n)` helper that runs
+  teardown first. Surfaced by the #2084 cross-model adversarial review (F2).
+
 - [ ] **P3 — opt-in whole-command wallclock cap (`GBRAIN_COMMAND_DEADLINE_MS`),
   build ONLY on a real wedged-handler incident.** The #2084 fix deliberately
   removed the blanket pre-handler 10s force-exit (it killed slow-legit ops with

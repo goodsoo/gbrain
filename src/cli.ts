@@ -1168,9 +1168,10 @@ async function handleCliOnly(command: string, args: string[]) {
     } else {
       // #2084: both failure kinds (connect throw, runDoctor(eng) throw) still
       // fall back to filesystem-only checks — identical to the prior shape.
-      // The finally fixes a pre-existing leak: a runDoctor(eng) throw used to
-      // skip the in-try disconnect entirely, leaving the pool to hold the
-      // event loop open.
+      // The finally closes the gap where a runDoctor(eng) throw used to skip
+      // the in-try disconnect. NOTE: runDoctor normally calls process.exit
+      // itself, which preempts this finally — in-command exit sites bypassing
+      // teardown are a pre-existing class, tracked as a TODOS.md follow-up.
       let eng: BrainEngine | null = null;
       try {
         eng = await connectEngine();
