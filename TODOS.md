@@ -1,16 +1,42 @@
 # TODOS
 
+## gbrain#2095 push-based context follow-ups (v0.43+)
+
+Filed from the #2095 wave (volunteer_context op + reflex window + `gbrain watch`).
+Deliberately scoped OUT of v1 per the eng-review scope decision (success criteria
+are the bar). Plan + GSTACK REVIEW REPORT at
+`~/.claude/plans/system-instruction-you-are-working-cheerful-elephant.md`.
+
+- [ ] **P3 — SSE/HTTP push channel via serve-http.** The op + `gbrain watch` cover
+  pull-per-turn and stdin streaming; a serve-http SSE feed would push volunteered
+  pages to remote agents without a local CLI. **Why:** thin-client/remote-MCP
+  deployments get push too. **Cons:** async plumbing + auth scoping; no consumer
+  wired today. **Where:** `src/commands/serve-http.ts` + `src/core/context/volunteer.ts`.
+  **Blocked by:** a real consumer (revisit when one exists).
+- [ ] **P3 — policy skill + doctor check for push-context.** The ambient reflex
+  needed doctor visibility because silent failure was invisible; volunteer is
+  invoked-on-demand so v1 skipped it. If `volunteer-context --stats` adoption shows
+  agents not discovering the surface, ship a `push-context` recipe (mirror
+  `recipes/retrieval-reflex/`) + a doctor check reading the events table.
+  **Where:** `recipes/`, `src/commands/doctor.ts`.
+- [ ] **P3 — structured `messages[]` param for volunteer_context.** v1 takes a
+  string window (`user:`/`assistant:` prefixes) to avoid a dual-shape contract.
+  If MCP callers accumulate parsing bugs, add a structured array param beside it.
+  **Where:** `src/core/operations.ts:volunteer_context` + `src/core/context/volunteer.ts:parseWindow`.
+
 ## gbrain#1981 Retrieval Reflex follow-ups (v0.43+)
 
 Filed from the #1981 ship (v0.42.39.0). Deliberately scoped OUT — the v1 extractor
 is deterministic + precision-biased. See plan + GSTACK REVIEW REPORT at
 `~/.claude/plans/system-instruction-you-are-working-wild-yeti.md`.
 
-- [ ] **P3 — broaden entity detection beyond proper-case ASCII.** The v1 extractor
-  (`src/core/context/entity-salience.ts`) misses lowercase names, many non-Latin
-  scripts, pronoun follow-ups ("what about her?"), and assistant-introduced entities.
-  These need conversation state or an LLM pass. **Why:** higher recall on the read
-  side. **Where:** `entity-salience.ts` + the orchestrator's `priorContextText`.
+- [ ] **P3 — broaden entity detection beyond proper-case ASCII.** The extractor
+  (`src/core/context/entity-salience.ts`) misses lowercase names and many non-Latin
+  scripts; these need an LLM pass or script-aware heuristics. **Why:** higher recall
+  on the read side. **Where:** `entity-salience.ts`. *(Partially done by the #2095
+  wave: `extractCandidatesFromWindow` now covers assistant-introduced entities and
+  pronoun follow-ups whose antecedent was NAMED in the rolling window; true pronoun
+  coreference for never-named antecedents remains with the LLM-pass idea.)*
 - [ ] **P3 — recall knob: optional fuzzy/prefix-expansion resolution.** The resolver
   (`src/core/context/retrieval-reflex.ts`) is exact-only (alias + title + slug-suffix)
   for precision. Revisit adding `resolveEntitySlug`'s trgm-fuzzy / prefix-expansion
@@ -213,17 +239,12 @@ GSTACK REVIEW REPORT at
   can't desync per-engine, bounded against CLI-hang by a top-level forced
   cleanup. Do this BEFORE introducing any concurrent module-engine connect path.
 
-- [ ] **P3 — `dream` + CLI_ONLY fall-through paths don't drain the facts /
-  last-retrieved queues before the owner disconnect.** The op-dispatch path
-  (`cli.ts:~282-314`) drains `getFactsQueue().drainPending()` +
-  `awaitPendingLastRetrievedWrites()` before `engine.disconnect()`; the `dream`
-  owner-disconnect (`cli.ts:~1164`) and the fall-through owner-disconnect
-  (`cli.ts:~1785`) do not. If the dream cycle ever enqueues a facts:absorb /
-  last-retrieved write that's still in flight at disconnect, the owner nulls the
-  singleton and the write throws "No database connection". Pre-existing (not
-  introduced by the #1471 ownership fix), surfaced by the Claude adversarial
-  review (F5). Fix: hoist the same drain-before-disconnect block the op-dispatch
-  path uses into a shared helper and call it on all three owner-disconnect sites.
+- [x] **P3 — `dream` + CLI_ONLY fall-through paths don't drain the facts /
+  last-retrieved queues before the owner disconnect.** DONE in the #2084 wave:
+  `drainThenDisconnect(engine)` in `src/cli.ts` is the shared helper, applied at
+  ALL eight owner-disconnect sites (op-dispatch, CLI_ONLY fall-through, search
+  dashboard, doctor remediation x3, ze-switch, dream, read-only-timeout path),
+  with its own bounded hard-deadline. Pinned by `test/cli-drain-then-disconnect.test.ts`.
 ## v0.42.x AI SDK v6 tool-schema fix follow-ups (#1782/#1764)
 
 Surfaced by the codex outside-voice pass during `/plan-eng-review` and
