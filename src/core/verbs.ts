@@ -347,7 +347,10 @@ const forget: Operation = {
       protocol_version: MEMORY_VERBS_VERSION,
     };
   },
-  cliHints: { name: 'forget', positional: ['id'] },
+  // NO cliHints: `gbrain forget` is a CLI_ONLY command (recall.ts runForget)
+  // that dispatches BEFORE cliOps — a cliHint here would be silently
+  // shadowed. The CLI surface for forgetting stays the existing command;
+  // this verb is the MCP/protocol surface.
 };
 
 export const verbOperations: Operation[] = [remember, entity, synthesize, forget];
