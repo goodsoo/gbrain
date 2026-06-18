@@ -49,6 +49,19 @@ export interface DispatchOpts {
    */
   sourceId?: string;
   /**
+   * Federated read grant for transports that have no per-token auth (stdio
+   * MCP). When set, buildOperationContext synthesizes a local AuthInfo whose
+   * `allowedSources` is this array, so `sourceScopeOpts` spans every listed
+   * source instead of the single scalar `sourceId`. This is how the stdio MCP
+   * server exposes a multi-source brain via the `GBRAIN_ALLOWED_SOURCES` env
+   * (comma/space separated) without an OAuth round-trip.
+   *
+   * Ignored when `opts.auth` is already provided (HTTP transport threads the
+   * real OAuth grant; that wins). Empty/undefined → no federation (back-compat:
+   * the scalar `sourceId` ladder applies, exactly as before).
+   */
+  allowedSources?: string[];
+  /**
    * v0.31 (eD3): hook called by the dispatcher AFTER op.handler succeeds
    * to compute `_meta.brain_hot_memory` for the response. Wrapped in its
    * own try/catch (eE4) so a DB blip in the helper degrades to no _meta
@@ -209,7 +222,31 @@ export function buildOperationContext(
     // CLI / HTTP / stdio transports SHOULD pass an explicit sourceId via opts;
     // this fallback covers code paths that historically passed undefined.
     sourceId: opts.sourceId ?? 'default',
-    auth: opts.auth,
+    auth: opts.auth ?? synthesizeLocalAuth(opts.allowedSources),
+  };
+}
+
+/**
+ * Build a synthetic local AuthInfo carrying a federated read grant for stdio
+ * MCP (which has no per-token OAuth identity). Returns undefined when there is
+ * no grant to carry, so the back-compat scalar-`sourceId` path is unchanged.
+ *
+ * The identity is deliberately local: `clientId` does NOT start with the
+ * `gbrain_cl_` OAuth prefix (so `whoami` reports it as the local token path,
+ * not a remote OAuth client). Scopes mirror stdio's actual posture — full
+ * read/write/admin, since stdio is the machine owner's local pipe and carries
+ * no scope enforcement — but intentionally OMIT `run_protected_onboard`, so the
+ * protected-job gate in `run_onboard` behaves exactly as it did when stdio
+ * passed `auth: undefined` (no regression).
+ */
+function synthesizeLocalAuth(allowedSources?: string[]): AuthInfo | undefined {
+  if (!allowedSources || allowedSources.length === 0) return undefined;
+  return {
+    token: 'local-stdio',
+    clientId: 'local-stdio',
+    clientName: 'local stdio MCP',
+    scopes: ['read', 'write', 'admin'],
+    allowedSources,
   };
 }
 

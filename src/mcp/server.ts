@@ -15,11 +15,41 @@ import {
 } from '../core/context/resolve-ipc.ts';
 import { resolveEntitiesToPointers, logDeliveredReflexPointers } from '../core/context/retrieval-reflex.ts';
 
+/**
+ * Parse the `GBRAIN_ALLOWED_SOURCES` env into a federated read grant for
+ * stdio MCP. Comma- or whitespace-separated source ids; trimmed, de-duped,
+ * empties dropped. Returns undefined when unset/blank so the back-compat
+ * single-source (`GBRAIN_SOURCE`/'default') path is unchanged.
+ *
+ * Why this exists: stdio MCP has no per-token OAuth identity, so without an
+ * explicit grant a multi-source brain's read ops fall back to the single
+ * scalar source and a bare `query`/`search` returns nothing from the other
+ * sources. Setting `GBRAIN_ALLOWED_SOURCES=a,b,c` makes bare reads span all
+ * listed sources (federation) — the same mechanism OAuth clients get via
+ * `oauth_clients.federated_read`.
+ */
+export function parseAllowedSourcesEnv(raw: string | undefined): string[] | undefined {
+  if (!raw) return undefined;
+  const ids = Array.from(
+    new Set(
+      raw
+        .split(/[,\s]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+    ),
+  );
+  return ids.length > 0 ? ids : undefined;
+}
+
 export async function startMcpServer(engine: BrainEngine) {
   const server = new Server(
     { name: 'gbrain', version: VERSION },
     { capabilities: { tools: {} } },
   );
+
+  // Federated read grant for stdio (no per-token auth). When set, bare reads
+  // span every listed source instead of the single scalar `GBRAIN_SOURCE`.
+  const allowedSources = parseAllowedSourcesEnv(process.env.GBRAIN_ALLOWED_SOURCES);
 
   // Generate tool definitions from operations. Extracted to buildToolDefs so
   // the subagent tool registry (v0.15+) can call the same mapper against a
@@ -47,6 +77,9 @@ export async function startMcpServer(engine: BrainEngine) {
       // Operators who want a different source on stdio MCP should set
       // GBRAIN_SOURCE in the env or use --source via `gbrain call`.
       sourceId: process.env.GBRAIN_SOURCE || 'default',
+      // Federated read grant (multi-source brains): when GBRAIN_ALLOWED_SOURCES
+      // is set, bare reads span every listed source instead of just `sourceId`.
+      allowedSources,
       // v0.31 (eD3): _meta.brain_hot_memory injection so Claude Desktop /
       // Code see the brain's relevant hot memory automatically alongside
       // every tool-call response. Best-effort; absorbs errors.
